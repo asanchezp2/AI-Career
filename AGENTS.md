@@ -86,6 +86,14 @@ For every feature:
 
 ---
 
+# Implementation Rules
+
+- Never implement more than one task at a time.
+- Always wait for approval before continuing.
+- Every implementation must include an explanation of the generated code and architectural decisions.
+
+---
+
 # Teaching Mode
 
 Assume the developer wants to learn.
