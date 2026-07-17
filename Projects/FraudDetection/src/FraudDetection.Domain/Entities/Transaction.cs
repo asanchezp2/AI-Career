@@ -58,43 +58,34 @@ public class Transaction
     /// Only allowed when the transaction is Pending.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when the transaction is not Pending.</exception>
-    public void Approve()
-    {
-        EnsurePending();
-        Status = TransactionStatus.Approved;
-    }
+    public void Approve() => ChangeStatus(TransactionStatus.Approved);
 
     /// <summary>
     /// Transitions the transaction to Rejected status.
     /// Only allowed when the transaction is Pending.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when the transaction is not Pending.</exception>
-    public void Reject()
-    {
-        EnsurePending();
-        Status = TransactionStatus.Rejected;
-    }
+    public void Reject() => ChangeStatus(TransactionStatus.Rejected);
 
     /// <summary>
     /// Transitions the transaction to UnderReview status.
     /// Only allowed when the transaction is Pending.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when the transaction is not Pending.</exception>
-    public void MarkForReview()
-    {
-        EnsurePending();
-        Status = TransactionStatus.UnderReview;
-    }
+    public void MarkForReview() => ChangeStatus(TransactionStatus.UnderReview);
 
     /// <summary>
-    /// Ensures the transaction is in Pending status before a state transition.
+    /// Changes the transaction status if the current status is Pending.
     /// </summary>
+    /// <param name="newStatus">The target status to transition to.</param>
     /// <exception cref="InvalidOperationException">Thrown when the transaction is not Pending.</exception>
-    private void EnsurePending()
+    private void ChangeStatus(TransactionStatus newStatus)
     {
         if (Status != TransactionStatus.Pending)
             throw new InvalidOperationException(
-                $"Cannot change status from {Status} to a new state. Only Pending transactions can transition.");
+                $"Only transactions in Pending status can change state. Current status: {Status}.");
+
+        Status = newStatus;
     }
 
     /// <summary>
