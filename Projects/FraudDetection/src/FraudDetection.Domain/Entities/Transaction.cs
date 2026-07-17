@@ -31,10 +31,10 @@ public class Transaction
     /// <summary>
     /// The current status of this transaction.
     /// </summary>
-    public TransactionStatus Status { get; }
+    public TransactionStatus Status { get; private set; }
 
     /// <summary>
-    /// Creates a new Transaction instance.
+    /// Creates a new Transaction instance with Pending status.
     /// </summary>
     /// <param name="id">The unique transaction identifier.</param>
     /// <param name="customerId">The customer initiating the transaction.</param>
@@ -51,6 +51,50 @@ public class Transaction
         Amount = amount;
         CreatedAt = DateTime.UtcNow;
         Status = TransactionStatus.Pending;
+    }
+
+    /// <summary>
+    /// Transitions the transaction to Approved status.
+    /// Only allowed when the transaction is Pending.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when the transaction is not Pending.</exception>
+    public void Approve()
+    {
+        EnsurePending();
+        Status = TransactionStatus.Approved;
+    }
+
+    /// <summary>
+    /// Transitions the transaction to Rejected status.
+    /// Only allowed when the transaction is Pending.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when the transaction is not Pending.</exception>
+    public void Reject()
+    {
+        EnsurePending();
+        Status = TransactionStatus.Rejected;
+    }
+
+    /// <summary>
+    /// Transitions the transaction to UnderReview status.
+    /// Only allowed when the transaction is Pending.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when the transaction is not Pending.</exception>
+    public void MarkForReview()
+    {
+        EnsurePending();
+        Status = TransactionStatus.UnderReview;
+    }
+
+    /// <summary>
+    /// Ensures the transaction is in Pending status before a state transition.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when the transaction is not Pending.</exception>
+    private void EnsurePending()
+    {
+        if (Status != TransactionStatus.Pending)
+            throw new InvalidOperationException(
+                $"Cannot change status from {Status} to a new state. Only Pending transactions can transition.");
     }
 
     /// <summary>

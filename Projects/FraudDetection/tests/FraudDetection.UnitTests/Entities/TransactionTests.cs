@@ -71,4 +71,82 @@ public class TransactionTests
         // Act & Assert
         Assert.NotEqual(transaction1, transaction2);
     }
+
+    [Fact]
+    public void Pending_To_Approved()
+    {
+        // Arrange
+        var transaction = CreatePendingTransaction();
+
+        // Act
+        transaction.Approve();
+
+        // Assert
+        Assert.Equal(TransactionStatus.Approved, transaction.Status);
+    }
+
+    [Fact]
+    public void Pending_To_Rejected()
+    {
+        // Arrange
+        var transaction = CreatePendingTransaction();
+
+        // Act
+        transaction.Reject();
+
+        // Assert
+        Assert.Equal(TransactionStatus.Rejected, transaction.Status);
+    }
+
+    [Fact]
+    public void Pending_To_UnderReview()
+    {
+        // Arrange
+        var transaction = CreatePendingTransaction();
+
+        // Act
+        transaction.MarkForReview();
+
+        // Assert
+        Assert.Equal(TransactionStatus.UnderReview, transaction.Status);
+    }
+
+    [Fact]
+    public void Approved_CannotChangeAgain()
+    {
+        // Arrange
+        var transaction = CreatePendingTransaction();
+        transaction.Approve();
+
+        // Act & Assert
+        Assert.Throws<InvalidOperationException>(() => transaction.Reject());
+        Assert.Throws<InvalidOperationException>(() => transaction.MarkForReview());
+    }
+
+    [Fact]
+    public void Rejected_CannotChangeAgain()
+    {
+        // Arrange
+        var transaction = CreatePendingTransaction();
+        transaction.Reject();
+
+        // Act & Assert
+        Assert.Throws<InvalidOperationException>(() => transaction.Approve());
+        Assert.Throws<InvalidOperationException>(() => transaction.MarkForReview());
+    }
+
+    [Fact]
+    public void UnderReview_CannotChangeAgain()
+    {
+        // Arrange
+        var transaction = CreatePendingTransaction();
+        transaction.MarkForReview();
+
+        // Act & Assert
+        Assert.Throws<InvalidOperationException>(() => transaction.Approve());
+        Assert.Throws<InvalidOperationException>(() => transaction.Reject());
+    }
+
+    private static Transaction CreatePendingTransaction() =>
+        new(TransactionId.New(), CustomerId.New(), new Money(100, "USD"));
 }
