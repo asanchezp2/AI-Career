@@ -26,10 +26,17 @@ Vertical Slice organizes code by use case, not by technical layer:
 ```
 FraudDetection/
 ├── src/
-│   ├── FraudDetection.Api/                    # Adapter: HTTP
-│   ├── FraudDetection.Application/            # Ports: Use Cases
-│   ├── FraudDetection.Domain/                 # Core: Business Rules
-│   └── FraudDetection.SharedKernel/           # Shared: Utilities
+│   ├── FraudDetection.Api/                        # HTTP Adapter
+│   ├── FraudDetection.Application/                # Application Layer
+│   │   └── Features/
+│   │       └── Transactions/
+│   │           └── AnalyzeTransaction/
+│   ├── FraudDetection.Domain/                     # Domain Layer
+│   │   ├── Entities/
+│   │   ├── Enums/
+│   │   └── ValueObjects/
+│   ├── FraudDetection.Infrastructure/             # Outbound Adapters
+│   └── FraudDetection.SharedKernel/               # Shared Utilities
 └── tests/
     ├── FraudDetection.UnitTests/
     └── FraudDetection.IntegrationTests/
@@ -48,9 +55,29 @@ Api → Application → Domain ← SharedKernel
 | Project | Responsibility |
 |---------|----------------|
 | Domain | Business rules, entities, value objects |
-| Application | Use cases, ports (interfaces), DTOs |
+| Application | Use cases, ports (interfaces), DTOs, validation |
 | Api | HTTP adapter, controllers, middleware |
 | SharedKernel | Cross-cutting concerns (Result, Guard) |
+
+## Current Implementation
+
+### Domain Layer
+
+| Component | Type | Description |
+|-----------|------|-------------|
+| Transaction | Entity | Financial transaction with identity and behavior |
+| TransactionStatus | Enum | Pending, Approved, Rejected, UnderReview |
+| Money | Value Object | Monetary amount with currency |
+| TransactionId | Value Object | Strongly typed transaction identifier |
+| CustomerId | Value Object | Strongly typed customer identifier |
+
+### Application Layer
+
+| Component | Type | Description |
+|-----------|------|-------------|
+| AnalyzeTransactionCommand | DTO | Input for transaction analysis |
+| AnalyzeTransactionValidator | Validator | FluentValidation for command input |
+| AnalyzeTransactionHandler | Handler | Placeholder for use case logic |
 
 ## Ports
 

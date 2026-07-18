@@ -18,19 +18,56 @@ Build a real-time fraud detection system that analyzes financial transactions an
 |----------|------------|
 | Runtime | .NET 8 |
 | Architecture | Hexagonal + Vertical Slice |
+| Validation | FluentValidation |
 | Testing | xUnit |
 | Documentation | OpenAPI/Swagger |
 
-## Roadmap
+## Current Status
 
-| Sprint | Focus | Status |
-|--------|-------|--------|
-| Sprint 1 | Solution structure + Core | In Progress |
-| Sprint 2 | Domain + Application | Pending |
-| Sprint 3 | API + In-Memory Adapters | Pending |
-| Sprint 4 | PostgreSQL Integration | Pending |
-| Sprint 5 | Kafka Integration | Pending |
-| Sprint 6 | AI Integration | Pending |
+### Implemented
+
+- ✅ Solution structure with all projects
+- ✅ Domain Layer: Transaction Entity, Value Objects (Money, TransactionId, CustomerId)
+- ✅ Application Layer: AnalyzeTransactionCommand, FluentValidation, Vertical Slice structure
+- ✅ 40 unit tests passing
+
+### Pending
+
+- ⏳ Application Layer: Use cases, ports, handlers
+- ⏳ API Layer: Controllers, middleware, DI
+- ⏳ Infrastructure: In-memory adapters
+- ⏳ PostgreSQL integration
+- ⏳ Kafka integration
+- ⏳ AI integration
+
+## Project Structure
+
+```
+FraudDetection/
+├── src/
+│   ├── FraudDetection.Api/                        # HTTP Adapter
+│   ├── FraudDetection.Application/                # Application Layer
+│   │   └── Features/
+│   │       └── Transactions/
+│   │           └── AnalyzeTransaction/
+│   │               ├── AnalyzeTransactionCommand.cs
+│   │               ├── AnalyzeTransactionValidator.cs
+│   │               └── AnalyzeTransactionHandler.cs
+│   ├── FraudDetection.Domain/                     # Domain Layer
+│   │   ├── Entities/
+│   │   │   └── Transaction.cs
+│   │   ├── Enums/
+│   │   │   └── TransactionStatus.cs
+│   │   └── ValueObjects/
+│   │       ├── Money.cs
+│   │       ├── TransactionId.cs
+│   │       └── CustomerId.cs
+│   ├── FraudDetection.Infrastructure/             # Outbound Adapters
+│   └── FraudDetection.SharedKernel/               # Shared Utilities
+└── tests/
+    ├── FraudDetection.UnitTests/
+    └── FraudDetection.IntegrationTests/
+```
 
 ## Documentation
 

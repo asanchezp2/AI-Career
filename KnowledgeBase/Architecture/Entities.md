@@ -297,3 +297,18 @@ private void ChangeStatus(TransactionStatus newStatus)
 - Transaction es un ejemplo de Entity con identity, lifecycle y behavior
 - Las transiciones de estado deben ser validadas
 - El estado final (Approved/Rejected) no debe cambiar
+
+---
+
+## Quick Review
+
+• Entity owns identity defined by its ID.
+• Value Objects own values, not identity.
+• Rich Models protect invariants inside the Entity.
+• Anemic Models put logic in external services (avoid).
+• Public setters break encapsulation.
+• State transitions must be validated.
+• TransactionId determines equality, not attributes.
+• Behavior belongs inside the Entity, not in services.
+• Strongly Typed IDs prevent mixing up identifiers.
+• Business rules belong in Domain, not Application.

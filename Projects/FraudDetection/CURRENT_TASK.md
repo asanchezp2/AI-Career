@@ -2,30 +2,41 @@
 
 ## Current Sprint
 
-Sprint 1
+Sprint 2
 
 ## Current Task
 
-Create only the solution structure.
+Domain Layer Completion
+
+## What's Done
+
+- ✅ Solution structure created
+- ✅ Transaction Entity with behavior (Approve, Reject, MarkForReview)
+- ✅ Value Objects (Money, TransactionId, CustomerId)
+- ✅ TransactionStatus Enum
+- ✅ FluentValidation for AnalyzeTransactionCommand
+- ✅ Vertical Slice folder structure
+- ✅ 40 unit tests passing
+
+## What's Next
+
+- Implement FraudRule entity
+- Implement FraudRuleEngine domain service
+- Implement Guard clauses in SharedKernel
+- Implement Result pattern in SharedKernel
 
 ## Scope
 
-- Solution file (.sln)
-- Project files (.csproj)
-- Project references
-- Build successfully
-
-## Explicitly Forbidden
-
-- Controllers
-- Entities
-- Business Logic
-- Infrastructure
-- Ports
-- Adapters
+- Domain entities
+- Value objects
+- Enums
+- Domain services
+- SharedKernel utilities
 
 ## Definition of Done
 
-- [ ] Solution compiles
-- [ ] References configured
-- [ ] No compilation errors
+- [ ] FraudRule entity implemented
+- [ ] FraudRuleEngine implemented
+- [ ] Guard clauses implemented
+- [ ] Result pattern implemented
+- [ ] All tests passing
