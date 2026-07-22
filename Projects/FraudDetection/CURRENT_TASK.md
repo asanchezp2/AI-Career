@@ -16,7 +16,10 @@ Domain Layer Completion
 - ✅ TransactionStatus Enum
 - ✅ FluentValidation for AnalyzeTransactionCommand
 - ✅ Vertical Slice folder structure
-- ✅ 40 unit tests passing
+- ✅ CQRS Handler for AnalyzeTransaction (explicit, no MediatR)
+- ✅ AnalyzeTransactionResult DTO
+- ✅ Handler refactored: removed premature MarkForReview, transaction stays Pending
+- ✅ 47 unit tests passing
 
 ## What's Next
 
@@ -24,6 +27,7 @@ Domain Layer Completion
 - Implement FraudRuleEngine domain service
 - Implement Guard clauses in SharedKernel
 - Implement Result pattern in SharedKernel
+- Wire Handler to Controller/Endpoint in API layer
 
 ## Scope
 
