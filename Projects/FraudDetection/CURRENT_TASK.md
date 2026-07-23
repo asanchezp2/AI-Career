@@ -12,18 +12,18 @@ Domain Layer Completion
 
 - ✅ Solution structure created
 - ✅ Transaction Entity with behavior (Approve, Reject, MarkForReview)
-- ✅ Value Objects (Money, TransactionId, CustomerId)
+- ✅ Value Objects (Money, TransactionId, CustomerId, FraudRuleId)
 - ✅ TransactionStatus Enum
 - ✅ FluentValidation for AnalyzeTransactionCommand
 - ✅ Vertical Slice folder structure
 - ✅ CQRS Handler for AnalyzeTransaction (explicit, no MediatR)
 - ✅ AnalyzeTransactionResult DTO
 - ✅ Handler refactored: removed premature MarkForReview, transaction stays Pending
-- ✅ 47 unit tests passing
+- ✅ FraudRule entity (RiskScore 0-100, Enable/Disable/Rename/ChangeRiskScore behavior)
+- ✅ 74 unit tests passing
 
 ## What's Next
 
-- Implement FraudRule entity
 - Implement FraudRuleEngine domain service
 - Implement Guard clauses in SharedKernel
 - Implement Result pattern in SharedKernel
@@ -39,7 +39,7 @@ Domain Layer Completion
 
 ## Definition of Done
 
-- [ ] FraudRule entity implemented
+- ✅ FraudRule entity implemented
 - [ ] FraudRuleEngine implemented
 - [ ] Guard clauses implemented
 - [ ] Result pattern implemented
