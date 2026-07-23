@@ -20,7 +20,8 @@ Domain Layer Completion
 - ✅ AnalyzeTransactionResult DTO
 - ✅ Handler refactored: removed premature MarkForReview, transaction stays Pending
 - ✅ FraudRule entity (RiskScore 0-100, Enable/Disable/Rename/ChangeRiskScore behavior)
-- ✅ 74 unit tests passing
+- ✅ Specification Pattern (ISpecification interface + HighAmountTransactionSpecification)
+- ✅ 83 unit tests passing
 
 ## What's Next
 
@@ -28,6 +29,7 @@ Domain Layer Completion
 - Implement Guard clauses in SharedKernel
 - Implement Result pattern in SharedKernel
 - Wire Handler to Controller/Endpoint in API layer
+- Composite Specifications (AND / OR / NOT)
 
 ## Scope
 
@@ -35,11 +37,13 @@ Domain Layer Completion
 - Value objects
 - Enums
 - Domain services
+- Specifications
 - SharedKernel utilities
 
 ## Definition of Done
 
 - ✅ FraudRule entity implemented
+- ✅ Specification Pattern implemented
 - [ ] FraudRuleEngine implemented
 - [ ] Guard clauses implemented
 - [ ] Result pattern implemented
