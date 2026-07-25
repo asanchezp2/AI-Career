@@ -21,15 +21,15 @@ Domain Layer Completion
 - ✅ Handler refactored: removed premature MarkForReview, transaction stays Pending
 - ✅ FraudRule entity (RiskScore 0-100, Enable/Disable/Rename/ChangeRiskScore behavior)
 - ✅ Specification Pattern (ISpecification + HighAmountTransactionSpecification)
-- ✅ FraudRuleEngine Domain Service (evaluates Transaction against FraudRules)
-- ✅ 96 unit tests passing
+- ✅ FraudRuleEngine Domain Service
+- ✅ FraudRuleEngine integrated into CQRS Handler (DI, InMemory provider, status applied)
+- ✅ 100 unit tests passing
 
 ## What's Next
 
-- Wire FraudRuleEngine into CQRS Handler (DI, apply recommended status)
-- Implement Guard clauses in SharedKernel
-- Implement Result pattern in SharedKernel
-- Wire Handler to Controller/Endpoint in API layer
+- API Controller/Endpoint for AnalyzeTransaction
+- Guard clauses in SharedKernel
+- Result pattern in SharedKernel
 - Composite Specifications (AND / OR / NOT)
 
 ## Scope
@@ -39,6 +39,8 @@ Domain Layer Completion
 - Enums
 - Domain services
 - Specifications
+- Application services
+- API endpoints
 - SharedKernel utilities
 
 ## Definition of Done
@@ -46,6 +48,8 @@ Domain Layer Completion
 - ✅ FraudRule entity implemented
 - ✅ Specification Pattern implemented
 - ✅ FraudRuleEngine implemented
+- ✅ CQRS integration complete
+- [ ] API Controller/Endpoint
 - [ ] Guard clauses implemented
 - [ ] Result pattern implemented
 - [ ] All tests passing

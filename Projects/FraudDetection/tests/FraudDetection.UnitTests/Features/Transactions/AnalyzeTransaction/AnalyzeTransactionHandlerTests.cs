@@ -1,12 +1,16 @@
+using FraudDetection.Application.Abstractions;
 using FraudDetection.Application.Features.Transactions.AnalyzeTransaction;
+using FraudDetection.Domain.Entities;
 using FraudDetection.Domain.Enums;
+using FraudDetection.Domain.Services;
+using FraudDetection.Domain.Specifications;
+using FraudDetection.Domain.Specifications.Transactions;
+using FraudDetection.Domain.ValueObjects;
 
 namespace FraudDetection.UnitTests.Features.Transactions.AnalyzeTransaction;
 
 public class AnalyzeTransactionHandlerTests
 {
-    private readonly AnalyzeTransactionHandler _handler = new();
-
     [Fact]
     public void Handle_ValidCommand_ReturnsResultWithCorrectTransactionId()
     {
@@ -19,16 +23,17 @@ public class AnalyzeTransactionHandlerTests
             Amount = 250.50m,
             Currency = "USD"
         };
+        var handler = CreateHandler(WithNoMatchingRules());
 
         // Act
-        var result = _handler.Handle(command);
+        var result = handler.Handle(command);
 
         // Assert
         Assert.Equal(transactionId, result.TransactionId);
     }
 
     [Fact]
-    public void Handle_ValidCommand_ReturnsPendingTransaction()
+    public void Handle_ValidCommand_NoMatchingRules_TransactionIsApproved()
     {
         // Arrange
         var command = new AnalyzeTransactionCommand
@@ -38,14 +43,77 @@ public class AnalyzeTransactionHandlerTests
             Amount = 100,
             Currency = "EUR"
         };
+        var handler = CreateHandler(WithNoMatchingRules());
 
         // Act
-        var result = _handler.Handle(command);
+        var result = handler.Handle(command);
 
         // Assert
-        // The Handler creates a Transaction in its initial state (Pending).
-        // No fraud evaluation exists yet — status changes will come with FraudRuleEngine.
-        Assert.Equal(TransactionStatus.Pending, result.Status);
+        Assert.Equal(TransactionStatus.Approved, result.Status);
+        Assert.Equal(0, result.TotalRiskScore);
+    }
+
+    [Fact]
+    public void Handle_HighAmountTransaction_TransactionIsUnderReview()
+    {
+        // Arrange
+        var command = new AnalyzeTransactionCommand
+        {
+            TransactionId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            Amount = 50000,
+            Currency = "USD"
+        };
+        var handler = CreateHandler(WithHighAmountRule(10000, 50));
+
+        // Act
+        var result = handler.Handle(command);
+
+        // Assert
+        Assert.Equal(TransactionStatus.UnderReview, result.Status);
+        Assert.Equal(50, result.TotalRiskScore);
+    }
+
+    [Fact]
+    public void Handle_LowAmountTransaction_DoesNotMatchHighAmountRule()
+    {
+        // Arrange
+        var command = new AnalyzeTransactionCommand
+        {
+            TransactionId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            Amount = 100,
+            Currency = "USD"
+        };
+        var handler = CreateHandler(WithHighAmountRule(10000, 50));
+
+        // Act
+        var result = handler.Handle(command);
+
+        // Assert
+        Assert.Equal(TransactionStatus.Approved, result.Status);
+        Assert.Equal(0, result.TotalRiskScore);
+    }
+
+    [Fact]
+    public void Handle_DisabledRules_AreIgnored()
+    {
+        // Arrange
+        var command = new AnalyzeTransactionCommand
+        {
+            TransactionId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            Amount = 50000,
+            Currency = "USD"
+        };
+        var handler = CreateHandler(WithDisabledHighAmountRule(10000, 50));
+
+        // Act
+        var result = handler.Handle(command);
+
+        // Assert
+        Assert.Equal(TransactionStatus.Approved, result.Status);
+        Assert.Equal(0, result.TotalRiskScore);
     }
 
     [Fact]
@@ -59,9 +127,10 @@ public class AnalyzeTransactionHandlerTests
             Amount = -50,
             Currency = "USD"
         };
+        var handler = CreateHandler(WithNoMatchingRules());
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => _handler.Handle(command));
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => handler.Handle(command));
         Assert.Contains("Amount", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -76,9 +145,10 @@ public class AnalyzeTransactionHandlerTests
             Amount = 100,
             Currency = "USD"
         };
+        var handler = CreateHandler(WithNoMatchingRules());
 
         // Act & Assert
-        Assert.Throws<ArgumentException>(() => _handler.Handle(command));
+        Assert.Throws<ArgumentException>(() => handler.Handle(command));
     }
 
     [Fact]
@@ -92,9 +162,10 @@ public class AnalyzeTransactionHandlerTests
             Amount = 100,
             Currency = "USD"
         };
+        var handler = CreateHandler(WithNoMatchingRules());
 
         // Act & Assert
-        Assert.Throws<ArgumentException>(() => _handler.Handle(command));
+        Assert.Throws<ArgumentException>(() => handler.Handle(command));
     }
 
     [Fact]
@@ -108,9 +179,10 @@ public class AnalyzeTransactionHandlerTests
             Amount = 100,
             Currency = "InvalidCurrency"
         };
+        var handler = CreateHandler(WithNoMatchingRules());
 
         // Act & Assert
-        Assert.Throws<ArgumentException>(() => _handler.Handle(command));
+        Assert.Throws<ArgumentException>(() => handler.Handle(command));
     }
 
     [Fact]
@@ -124,12 +196,96 @@ public class AnalyzeTransactionHandlerTests
             Amount = 0,
             Currency = "USD"
         };
+        // Zero amount does not trigger HighAmount (threshold 10000), so Approved
+        var handler = CreateHandler(WithHighAmountRule(10000, 50));
 
-        // Act & Assert
-        // Zero amount passes the Handler because Amount > 0 is a validation rule
-        // in the Application Layer (FluentValidation), not a Domain invariant.
-        // Money only rejects negative amounts.
-        var result = _handler.Handle(command);
-        Assert.Equal(TransactionStatus.Pending, result.Status);
+        // Act
+        var result = handler.Handle(command);
+
+        // Assert
+        // Zero amount passes Domain (Money accepts zero), no rules match → Approved
+        Assert.Equal(TransactionStatus.Approved, result.Status);
+        Assert.Equal(0, result.TotalRiskScore);
+    }
+
+    [Fact]
+    public void Handle_AppliesStatusThroughTransactionBehavior()
+    {
+        // Arrange
+        var command = new AnalyzeTransactionCommand
+        {
+            TransactionId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            Amount = 80000,
+            Currency = "MXN"
+        };
+        var handler = CreateHandler(WithHighAmountRule(10000, 50));
+
+        // Act
+        var result = handler.Handle(command);
+
+        // Assert
+        // The status transition went through transaction.MarkForReview(),
+        // which means the Transaction entity managed the state change.
+        Assert.Equal(TransactionStatus.UnderReview, result.Status);
+    }
+
+    private static AnalyzeTransactionHandler CreateHandler(
+        TestFraudRuleProvider provider)
+    {
+        var engine = new FraudRuleEngine();
+        return new AnalyzeTransactionHandler(engine, provider);
+    }
+
+    private static TestFraudRuleProvider WithNoMatchingRules()
+    {
+        return new TestFraudRuleProvider(
+            Array.Empty<FraudRule>(),
+            new Dictionary<string, ISpecification>());
+    }
+
+    private static TestFraudRuleProvider WithHighAmountRule(
+        decimal threshold, int riskScore)
+    {
+        var rule = new FraudRule(FraudRuleId.New(), "HighAmount", riskScore);
+        return new TestFraudRuleProvider(
+            new[] { rule },
+            new Dictionary<string, ISpecification>
+            {
+                ["HighAmount"] = new HighAmountTransactionSpecification(threshold)
+            });
+    }
+
+    private static TestFraudRuleProvider WithDisabledHighAmountRule(
+        decimal threshold, int riskScore)
+    {
+        var rule = new FraudRule(FraudRuleId.New(), "HighAmount", riskScore);
+        rule.Disable();
+        return new TestFraudRuleProvider(
+            new[] { rule },
+            new Dictionary<string, ISpecification>
+            {
+                ["HighAmount"] = new HighAmountTransactionSpecification(threshold)
+            });
+    }
+
+    /// <summary>
+    /// Test double for IFraudRuleProvider that allows full control over rules and specifications.
+    /// </summary>
+    private sealed class TestFraudRuleProvider : IFraudRuleProvider
+    {
+        private readonly IReadOnlyCollection<FraudRule> _rules;
+        private readonly IReadOnlyDictionary<string, ISpecification> _specifications;
+
+        public TestFraudRuleProvider(
+            IReadOnlyCollection<FraudRule> rules,
+            IReadOnlyDictionary<string, ISpecification> specifications)
+        {
+            _rules = rules;
+            _specifications = specifications;
+        }
+
+        public IReadOnlyCollection<FraudRule> GetAllRules() => _rules;
+        public IReadOnlyDictionary<string, ISpecification> GetSpecifications() => _specifications;
     }
 }

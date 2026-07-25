@@ -18,11 +18,18 @@ public class AnalyzeTransactionResult
     public TransactionStatus Status { get; }
 
     /// <summary>
+    /// The total risk score calculated by the fraud rule engine.
+    /// Zero indicates no risk detected.
+    /// </summary>
+    public int TotalRiskScore { get; }
+
+    /// <summary>
     /// Creates a new AnalyzeTransactionResult instance.
     /// </summary>
-    public AnalyzeTransactionResult(Guid transactionId, TransactionStatus status)
+    public AnalyzeTransactionResult(Guid transactionId, TransactionStatus status, int totalRiskScore = 0)
     {
         TransactionId = transactionId;
         Status = status;
+        TotalRiskScore = totalRiskScore;
     }
 }
