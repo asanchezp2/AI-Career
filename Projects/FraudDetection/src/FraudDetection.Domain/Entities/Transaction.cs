@@ -9,24 +9,29 @@ namespace FraudDetection.Domain.Entities;
 public class Transaction
 {
     /// <summary>
+    /// EF Core parameterless constructor (used for materialization only).
+    /// </summary>
+    private Transaction() { Id = null!; CustomerId = null!; Amount = null!; }
+
+    /// <summary>
     /// The unique identifier of this transaction.
     /// </summary>
-    public TransactionId Id { get; }
+    public TransactionId Id { get; private set; }
 
     /// <summary>
     /// The customer who initiated the transaction.
     /// </summary>
-    public CustomerId CustomerId { get; }
+    public CustomerId CustomerId { get; private set; }
 
     /// <summary>
     /// The monetary amount of this transaction.
     /// </summary>
-    public Money Amount { get; }
+    public Money Amount { get; private set; }
 
     /// <summary>
     /// The date and time when this transaction was created (UTC).
     /// </summary>
-    public DateTime CreatedAt { get; }
+    public DateTime CreatedAt { get; private set; }
 
     /// <summary>
     /// The current status of this transaction.

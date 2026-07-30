@@ -3,7 +3,14 @@
   <ItemGroup>
     <ProjectReference Include="..\FraudDetection.Domain\FraudDetection.Domain.csproj" />
     <ProjectReference Include="..\FraudDetection.Application\FraudDetection.Application.csproj" />
-    <ProjectReference Include="..\FraudDetection.SharedKernel\FraudDetection.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
   </ItemGroup>
 
   <PropertyGroup>

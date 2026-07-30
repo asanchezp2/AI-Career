@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FraudDetection.Domain\FraudDetection.Domain.csproj" />
-    <ProjectReference Include="..\FraudDetection.SharedKernel\FraudDetection.SharedKernel.csproj" />
   </ItemGroup>
 
   <ItemGroup>

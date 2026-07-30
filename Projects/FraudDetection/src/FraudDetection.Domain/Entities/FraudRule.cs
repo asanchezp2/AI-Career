@@ -8,9 +8,14 @@ namespace FraudDetection.Domain.Entities;
 public class FraudRule
 {
     /// <summary>
+    /// EF Core parameterless constructor (used for materialization only).
+    /// </summary>
+    private FraudRule() { Id = null!; RuleName = null!; }
+
+    /// <summary>
     /// The unique identifier of this fraud rule.
     /// </summary>
-    public FraudRuleId Id { get; }
+    public FraudRuleId Id { get; private set; }
 
     /// <summary>
     /// The name of this fraud rule.
