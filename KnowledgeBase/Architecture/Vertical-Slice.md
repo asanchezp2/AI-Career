@@ -83,7 +83,10 @@ public class AnalyzeTransactionCommand
     public Guid TransactionId { get; init; }
     public Guid CustomerId { get; init; }
     public decimal Amount { get; init; }
-    public string Currency { get; init; }
+    public string Currency { get; init; } = string.Empty;
+    public string? Country { get; init; }
+    public Dictionary<string, string>? Metadata { get; init; }
+    public DateTime Timestamp { get; init; }
 }
 
 // Validator
@@ -92,14 +95,17 @@ public class AnalyzeTransactionValidator : AbstractValidator<AnalyzeTransactionC
     public AnalyzeTransactionValidator()
     {
         RuleFor(x => x.TransactionId).NotEmpty();
-        RuleFor(x => x.Amount).GreaterThan(0);
+        RuleFor(x => x.Amount).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.Currency).NotEmpty().Length(3);
+        RuleFor(x => x.Timestamp).NotEmpty();
     }
 }
 
 // Handler
 public class AnalyzeTransactionHandler
 {
-    // Lógica de negocio aquí
+    // Crea Transaction, consulta velocidad real en DB,
+    // evalúa reglas de fraude, persiste resultado
 }
 ```
 

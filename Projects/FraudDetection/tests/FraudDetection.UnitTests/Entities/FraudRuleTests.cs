@@ -1,4 +1,5 @@
 using FraudDetection.Domain.Entities;
+using FraudDetection.Domain.Enums;
 using FraudDetection.Domain.ValueObjects;
 
 namespace FraudDetection.UnitTests.Entities;
@@ -111,6 +112,37 @@ public class FraudRuleTests
 
         // Assert
         Assert.Equal(100, rule.RiskScore);
+    }
+
+    [Fact]
+    public void FraudRule_DefaultAction_IsReview()
+    {
+        // Arrange & Act
+        var rule = new FraudRule(FraudRuleId.New(), "TestRule", 50);
+
+        // Assert
+        Assert.Equal(FraudRuleAction.Review, rule.Action);
+    }
+
+    [Fact]
+    public void FraudRule_ExplicitReviewAction_IsReview()
+    {
+        // Arrange & Act
+        var rule = new FraudRule(FraudRuleId.New(), "ReviewRule", 50, FraudRuleAction.Review);
+
+        // Assert
+        Assert.Equal(FraudRuleAction.Review, rule.Action);
+    }
+
+    [Fact]
+    public void FraudRule_ExplicitRejectAction_IsReject()
+    {
+        // Arrange & Act
+        var rule = new FraudRule(FraudRuleId.New(), "RejectRule", 70, FraudRuleAction.Reject);
+
+        // Assert
+        Assert.Equal(FraudRuleAction.Reject, rule.Action);
+        Assert.Equal(70, rule.RiskScore);
     }
 
     [Fact]

@@ -47,7 +47,7 @@ public class AnalyzeTransactionValidator : AbstractValidator<AnalyzeTransactionC
     public AnalyzeTransactionValidator()
     {
         RuleFor(x => x.TransactionId).NotEmpty();
-        RuleFor(x => x.Amount).GreaterThan(0);
+        RuleFor(x => x.Amount).GreaterThanOrEqualTo(0);
         RuleFor(x => x.Currency).Length(3);
     }
 }
@@ -94,9 +94,31 @@ RuleFor(x => x.CustomerId)
 
 ```csharp
 RuleFor(x => x.Amount)
-    .GreaterThan(0)
-    .WithMessage("Amount must be greater than zero.");
+    .GreaterThanOrEqualTo(0)
+    .WithMessage("Amount must be greater than or equal to zero.");
 ```
+
+**Nota:** Se cambió de `GreaterThan(0)` a `GreaterThanOrEqualTo(0)` en Phase 2/5 para alinear con la validación del Domain (`Money` permite `Amount >= 0`). El Domain es la fuente de verdad — la validación de entrada no debe ser más restrictiva que las reglas del dominio (ver ADR-017 para contexto).
+
+### Timestamp
+
+```csharp
+RuleFor(x => x.Timestamp)
+    .NotEmpty()
+    .WithMessage("Timestamp is required.");
+```
+
+El timestamp representa la fecha y hora en que ocurrió la transacción (UTC). El cliente lo provee y se almacena como `CreatedAt` en la base de datos.
+
+### Country
+
+```csharp
+RuleFor(x => x.Country)
+    .Must(country => country is null || CountryCodeRegex.IsMatch(country))
+    .WithMessage("Country must be a valid ISO 3166-1 alpha-2 code (2 uppercase letters).");
+```
+
+El país es opcional (nullable). Cuando se provee, debe ser un código ISO 3166-1 alpha-2 de dos letras mayúsculas. Se usa `Regex.IsMatch("^[A-Z]{2}$")` para validación.
 
 ### Currency
 
@@ -109,6 +131,52 @@ RuleFor(x => x.Currency)
     .Must(currency => currency == currency.ToUpperInvariant())
     .WithMessage("Currency must be uppercase.");
 ```
+
+---
+
+## Tests de validación
+
+El validador `AnalyzeTransactionValidator` tiene **12 tests unitarios** en el proyecto `FraudDetection.UnitTests`.
+
+Los tests cubren:
+
+Cada regla individual se testea con dos casos (válido e inválido):
+
+| Test | Verifica |
+|------|----------|
+| `EmptyTransactionId_ReturnsValidationError` | TransactionId requerido |
+| `ValidTransactionId_PassesValidation` | TransactionId válido |
+| `ZeroAmount_PassesValidation` | Amount >= 0 es válido (Domain es fuente de verdad) |
+| `ValidAmount_PassesValidation` | Amount válido |
+| `EmptyCurrency_ReturnsValidationError` | Currency requerido |
+| `InvalidCurrencyLength_ReturnsValidationError` | Currency debe tener 3 caracteres |
+| `LowercaseCurrency_ReturnsValidationError` | Currency debe estar en mayúsculas |
+| `ValidCurrency_PassesValidation` | Currency válido |
+| `EmptyTimestamp_ReturnsValidationError` | Timestamp requerido |
+| `ValidTimestamp_PassesValidation` | Timestamp válido |
+| `InvalidCountryCode_ReturnsValidationError` | Country debe ser ISO 3166-1 alpha-2 |
+| `ValidCommand_PassesAllValidations` | Comando completo válido |
+
+```csharp
+[Fact]
+public void EmptyTransactionId_ReturnsValidationError()
+{
+    var command = new AnalyzeTransactionCommand
+    {
+        TransactionId = Guid.Empty,
+        CustomerId = Guid.NewGuid(),
+        Amount = 100,
+        Currency = "USD"
+    };
+
+    var validator = new AnalyzeTransactionValidator();
+    var result = validator.TestValidate(command);
+
+    result.ShouldHaveValidationErrorFor(x => x.TransactionId);
+}
+```
+
+Estos tests son **independientes**, **rápidos** y no requieren mocking porque FluentValidation trabaja directamente con el comando.
 
 ---
 
@@ -133,7 +201,7 @@ RuleFor(x => x.Currency)
 5. Mantener validadores separados por feature
 6. Testear cada regla de validación
 7. Usar `NotEmpty()` para campos requeridos
-8. Usar `GreaterThan()` para valores numéricos
+8. Usar `GreaterThanOrEqualTo()` para valores numéricos (alineado con Domain)
 9. Usar `Length()` para strings de longitud fija
 10. Usar `Must()` para validaciones personalizadas
 
@@ -158,10 +226,12 @@ RuleFor(x => x.Currency)
 
 En nuestro proyecto:
 
-- `AnalyzeTransactionValidator` valida el input en Application Layer
+- `AnalyzeTransactionValidator` valida el input en Application Layer (12 tests de validación)
 - `Transaction.ChangeStatus()` valida reglas de negocio en Domain Layer
 - La validación rechaza datos inválidos antes de llegar al Domain
 - Las reglas de negocio garantizan invariantes del dominio
+- Amount se valida con `GreaterThanOrEqualTo(0)` para alinear con el Domain (Phase 2/5)
+- Timestamp y Country se agregaron como campos opcionales en Phase 4/5
 
 ```csharp
 // Application: valida formato
@@ -226,5 +296,6 @@ transaction.Approve();  // Valida que esté Pending
 • Fail fast: reject bad input at the boundary.
 • Use `NotEmpty()` for required fields.
 • Use `Must()` for custom validation logic.
-• Test every validation rule independently.
+• Use `GreaterThanOrEqualTo()` to align with Domain invariants.
+• Test every validation rule independently (12 tests for AnalyzeTransactionValidator).
 • Validation and Business Rules serve different purposes.

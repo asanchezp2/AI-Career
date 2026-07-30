@@ -1,7 +1,10 @@
 using FraudDetection.Application.Abstractions;
+using FraudDetection.Domain;
 using FraudDetection.Domain.Entities;
+using FraudDetection.Domain.Enums;
 using FraudDetection.Domain.Specifications;
 using FraudDetection.Domain.Specifications.Transactions;
+using FraudDetection.Domain.ValueObjects;
 using FraudDetection.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,7 +21,7 @@ public sealed class DbFraudRuleProvider : IFraudRuleProvider
 
     public DbFraudRuleProvider(FraudDetectionDbContext dbContext)
     {
-        ArgumentNullException.ThrowIfNull(dbContext);
+        Guard.AgainstNull(dbContext, nameof(dbContext));
         _dbContext = dbContext;
         _specifications = InitializeSpecifications();
     }
@@ -26,6 +29,7 @@ public sealed class DbFraudRuleProvider : IFraudRuleProvider
     public IReadOnlyCollection<FraudRule> GetAllRules()
     {
         return _dbContext.FraudRules
+            .Where(r => r.IsEnabled)
             .AsNoTracking()
             .ToList()
             .AsReadOnly();
@@ -40,7 +44,26 @@ public sealed class DbFraudRuleProvider : IFraudRuleProvider
     {
         return new Dictionary<string, ISpecification>
         {
-            ["HighAmount"] = new HighAmountTransactionSpecification(10000m)
+            ["HighAmount"] = new HighAmountTransactionSpecification(10000m),
+            ["Velocity"] = new VelocityTransactionSpecification(maxTransactionCount: 5, timeWindow: TimeSpan.FromHours(1)),
+            ["Blacklist"] = new BlacklistCustomerSpecification(GetBlacklistedCustomers()),
+            ["HighRiskCountry"] = new HighRiskCountrySpecification(GetHighRiskCountries())
         };
+    }
+
+    private static IEnumerable<CustomerId> GetBlacklistedCustomers()
+    {
+        // Pre-seeded blacklist for demo purposes.
+        // In production, this would be loaded from a dedicated table.
+        return new List<CustomerId>
+        {
+            CustomerId.From(Guid.Parse("00000000-0000-0000-0000-000000000001"))
+        };
+    }
+
+    private static IEnumerable<string> GetHighRiskCountries()
+    {
+        // ISO 3166-1 alpha-2 country codes for high-risk regions
+        return new[] { "IR", "KP", "SY", "VE" };
     }
 }

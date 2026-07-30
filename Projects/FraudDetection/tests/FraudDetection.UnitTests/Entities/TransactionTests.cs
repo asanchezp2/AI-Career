@@ -15,7 +15,7 @@ public class TransactionTests
         var amount = new Money(100, "USD");
 
         // Act
-        var transaction = new Transaction(transactionId, customerId, amount);
+        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow);
 
         // Assert
         Assert.Equal(transactionId, transaction.Id);
@@ -33,7 +33,7 @@ public class TransactionTests
         var amount = new Money(100, "USD");
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new Transaction(null!, customerId, amount));
+        Assert.Throws<ArgumentNullException>(() => new Transaction(null!, customerId, amount, DateTime.UtcNow));
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class TransactionTests
         var amount = new Money(100, "USD");
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new Transaction(transactionId, null!, amount));
+        Assert.Throws<ArgumentNullException>(() => new Transaction(transactionId, null!, amount, DateTime.UtcNow));
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class TransactionTests
         var customerId = CustomerId.New();
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new Transaction(transactionId, customerId, null!));
+        Assert.Throws<ArgumentNullException>(() => new Transaction(transactionId, customerId, null!, DateTime.UtcNow));
     }
 
     [Fact]
@@ -65,8 +65,8 @@ public class TransactionTests
         var customerId = CustomerId.New();
         var amount = new Money(100, "USD");
 
-        var transaction1 = new Transaction(TransactionId.New(), customerId, amount);
-        var transaction2 = new Transaction(TransactionId.New(), customerId, amount);
+        var transaction1 = new Transaction(TransactionId.New(), customerId, amount, DateTime.UtcNow);
+        var transaction2 = new Transaction(TransactionId.New(), customerId, amount, DateTime.UtcNow);
 
         // Act & Assert
         Assert.NotEqual(transaction1, transaction2);
@@ -79,9 +79,10 @@ public class TransactionTests
         var transaction = CreatePendingTransaction();
 
         // Act
-        transaction.Approve();
+        var result = transaction.Approve();
 
         // Assert
+        Assert.True(result.IsSuccess);
         Assert.Equal(TransactionStatus.Approved, transaction.Status);
     }
 
@@ -92,9 +93,10 @@ public class TransactionTests
         var transaction = CreatePendingTransaction();
 
         // Act
-        transaction.Reject();
+        var result = transaction.Reject();
 
         // Assert
+        Assert.True(result.IsSuccess);
         Assert.Equal(TransactionStatus.Rejected, transaction.Status);
     }
 
@@ -105,9 +107,10 @@ public class TransactionTests
         var transaction = CreatePendingTransaction();
 
         // Act
-        transaction.MarkForReview();
+        var result = transaction.MarkForReview();
 
         // Assert
+        Assert.True(result.IsSuccess);
         Assert.Equal(TransactionStatus.UnderReview, transaction.Status);
     }
 
@@ -116,11 +119,17 @@ public class TransactionTests
     {
         // Arrange
         var transaction = CreatePendingTransaction();
-        transaction.Approve();
+        var approveResult = transaction.Approve();
+        Assert.True(approveResult.IsSuccess);
 
         // Act & Assert
-        Assert.Throws<InvalidOperationException>(() => transaction.Reject());
-        Assert.Throws<InvalidOperationException>(() => transaction.MarkForReview());
+        var rejectResult = transaction.Reject();
+        Assert.True(rejectResult.IsFailure);
+        Assert.Contains("Approved", rejectResult.Error);
+
+        var reviewResult = transaction.MarkForReview();
+        Assert.True(reviewResult.IsFailure);
+        Assert.Contains("Approved", reviewResult.Error);
     }
 
     [Fact]
@@ -128,11 +137,17 @@ public class TransactionTests
     {
         // Arrange
         var transaction = CreatePendingTransaction();
-        transaction.Reject();
+        var rejectResult = transaction.Reject();
+        Assert.True(rejectResult.IsSuccess);
 
         // Act & Assert
-        Assert.Throws<InvalidOperationException>(() => transaction.Approve());
-        Assert.Throws<InvalidOperationException>(() => transaction.MarkForReview());
+        var approveResult = transaction.Approve();
+        Assert.True(approveResult.IsFailure);
+        Assert.Contains("Rejected", approveResult.Error);
+
+        var reviewResult = transaction.MarkForReview();
+        Assert.True(reviewResult.IsFailure);
+        Assert.Contains("Rejected", reviewResult.Error);
     }
 
     [Fact]
@@ -140,13 +155,120 @@ public class TransactionTests
     {
         // Arrange
         var transaction = CreatePendingTransaction();
-        transaction.MarkForReview();
+        var reviewResult = transaction.MarkForReview();
+        Assert.True(reviewResult.IsSuccess);
 
         // Act & Assert
-        Assert.Throws<InvalidOperationException>(() => transaction.Approve());
-        Assert.Throws<InvalidOperationException>(() => transaction.Reject());
+        var approveResult = transaction.Approve();
+        Assert.True(approveResult.IsFailure);
+        Assert.Contains("UnderReview", approveResult.Error);
+
+        var rejectResult = transaction.Reject();
+        Assert.True(rejectResult.IsFailure);
+        Assert.Contains("UnderReview", rejectResult.Error);
+    }
+
+    [Fact]
+    public void Transaction_WithValidCountry_StoresCountry()
+    {
+        // Arrange
+        var transactionId = TransactionId.New();
+        var customerId = CustomerId.New();
+        var amount = new Money(100, "USD");
+
+        // Act
+        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow, country: "US");
+
+        // Assert
+        Assert.Equal("US", transaction.Country);
+    }
+
+    [Fact]
+    public void Transaction_WithNullCountry_Allowed()
+    {
+        // Arrange
+        var transactionId = TransactionId.New();
+        var customerId = CustomerId.New();
+        var amount = new Money(100, "USD");
+
+        // Act
+        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow, country: null);
+
+        // Assert
+        Assert.Null(transaction.Country);
+    }
+
+    [Fact]
+    public void Transaction_WithWhitespaceCountry_ThrowsArgumentException()
+    {
+        // Arrange
+        var transactionId = TransactionId.New();
+        var customerId = CustomerId.New();
+        var amount = new Money(100, "USD");
+
+        // Act & Assert
+        Assert.Throws<ArgumentException>(
+            () => new Transaction(transactionId, customerId, amount, DateTime.UtcNow, country: "   "));
+    }
+
+    [Fact]
+    public void Transaction_DefaultMetadata_IsEmpty()
+    {
+        // Arrange
+        var transactionId = TransactionId.New();
+        var customerId = CustomerId.New();
+        var amount = new Money(100, "USD");
+
+        // Act
+        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow);
+
+        // Assert
+        Assert.NotNull(transaction.Metadata);
+        Assert.Empty(transaction.Metadata);
+    }
+
+    [Fact]
+    public void Transaction_WithMetadata_StoresItems()
+    {
+        // Arrange
+        var transactionId = TransactionId.New();
+        var customerId = CustomerId.New();
+        var amount = new Money(100, "USD");
+        var metadata = new Dictionary<string, string>
+        {
+            ["source"] = "web",
+            ["channel"] = "mobile"
+        };
+
+        // Act
+        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow, metadata: metadata);
+
+        // Assert
+        Assert.Equal(2, transaction.Metadata.Count);
+        Assert.Equal("web", transaction.Metadata["source"]);
+        Assert.Equal("mobile", transaction.Metadata["channel"]);
+    }
+
+    [Fact]
+    public void Transaction_Metadata_CanAddItemsAfterConstruction()
+    {
+        // Arrange
+        var transaction = new Transaction(
+            TransactionId.New(),
+            CustomerId.New(),
+            new Money(100, "USD"),
+            DateTime.UtcNow);
+
+        // Act
+        transaction.Metadata["ip_address"] = "192.168.1.1";
+        transaction.Metadata["user_agent"] = "Mozilla/5.0";
+
+        // Assert
+        Assert.Equal(2, transaction.Metadata.Count);
+        Assert.Equal("192.168.1.1", transaction.Metadata["ip_address"]);
+        Assert.Equal("Mozilla/5.0", transaction.Metadata["user_agent"]);
     }
 
     private static Transaction CreatePendingTransaction() =>
-        new(TransactionId.New(), CustomerId.New(), new Money(100, "USD"));
+        new(TransactionId.New(), CustomerId.New(), new Money(100, "USD"), DateTime.UtcNow);
 }

@@ -1,4 +1,5 @@
 using FraudDetection.Domain.Entities;
+using FraudDetection.Domain.Enums;
 using FraudDetection.Infrastructure.Persistence.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -26,5 +27,11 @@ public sealed class FraudRuleConfiguration : IEntityTypeConfiguration<FraudRule>
 
         builder.Property(r => r.IsEnabled)
             .IsRequired();
+
+        builder.Property(r => r.Action)
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .IsRequired()
+            .HasDefaultValue(FraudRuleAction.Review);
     }
 }

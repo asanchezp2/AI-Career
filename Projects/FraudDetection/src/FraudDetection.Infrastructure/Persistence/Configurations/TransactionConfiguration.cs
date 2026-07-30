@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FraudDetection.Domain.Entities;
 using FraudDetection.Infrastructure.Persistence.Converters;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,9 @@ public sealed class TransactionConfiguration : IEntityTypeConfiguration<Transact
         builder.ToTable("Transactions");
 
         builder.HasKey(t => t.Id);
+
+        builder.HasIndex(t => new { t.CustomerId, t.CreatedAt })
+            .HasDatabaseName("IX_Transactions_CustomerId_CreatedAt");
 
         builder.Property(t => t.Id)
             .HasConversion<TransactionIdConverter>()
@@ -28,6 +32,16 @@ public sealed class TransactionConfiguration : IEntityTypeConfiguration<Transact
             .HasConversion<TransactionStatusConverter>()
             .HasMaxLength(20)
             .IsRequired();
+
+        builder.Property(t => t.Country)
+            .HasMaxLength(2)
+            .IsRequired(false);
+
+        builder.Property(t => t.Metadata)
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null) ?? new())
+            .IsRequired(false);
 
         builder.OwnsOne(t => t.Amount, money =>
         {

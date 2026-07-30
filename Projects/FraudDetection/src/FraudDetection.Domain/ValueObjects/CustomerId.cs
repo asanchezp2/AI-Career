@@ -31,9 +31,7 @@ public record CustomerId
     /// <exception cref="ArgumentException">Thrown when Guid.Empty is provided.</exception>
     private CustomerId(Guid value)
     {
-        if (value == Guid.Empty)
-            throw new ArgumentException("A customer identifier must contain a valid Guid.", nameof(value));
-
+        Guard.AgainstEmptyGuid(value, nameof(value));
         Value = value;
     }
 }

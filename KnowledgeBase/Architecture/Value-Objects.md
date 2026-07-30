@@ -153,6 +153,34 @@ El compilador impide intercambiarlo accidentalmente con TransactionId.
 
 ---
 
+## FraudRuleId
+
+Representa el identificador de una regla de fraude.
+
+Sigue el mismo patrón que TransactionId y CustomerId:
+
+```csharp
+public record FraudRuleId
+{
+    public Guid Value { get; }
+
+    public static FraudRuleId New() => new(Guid.NewGuid());
+    public static FraudRuleId From(Guid value) => new(value);
+
+    private FraudRuleId(Guid value)
+    {
+        Guard.AgainstEmptyGuid(value, nameof(value));
+        Value = value;
+    }
+}
+```
+
+Se agregó cuando se implementó la entidad `FraudRule` en Sprint 2.
+
+**Nota:** En Phase 2/5, los tres constructores de Value Objects que validaban `Guid.Empty` manualmente (`TransactionId`, `CustomerId`, `FraudRuleId`) fueron refactorizados para usar `Guard.AgainstEmptyGuid()`. El constructor de `Money` ahora usa `Guard.AgainstNegative()` y `Guard.AgainstNullOrWhiteSpace()`. Esto centraliza la validación, elimina código duplicado y estandariza los mensajes de error.
+
+---
+
 # Strongly Typed IDs
 
 Los Strongly Typed IDs son un caso particular de Value Object.
@@ -229,6 +257,31 @@ Su única responsabilidad es representar conceptos del negocio.
 
 ---
 
+# EF Core Mapping
+
+Los Value Objects fuertemente tipados (`TransactionId`, `CustomerId`, `FraudRuleId`) se mapean a la base de datos mediante **Value Converters** en la capa de Infrastructure.
+
+Los converters convierten entre el VO del Domain y el tipo primitivo (`Guid`) que entiende EF Core:
+
+```csharp
+// Infrastructure/Persistence/Converters/TransactionIdConverter.cs
+public sealed class TransactionIdConverter : ValueConverter<TransactionId, Guid>
+{
+    public TransactionIdConverter()
+        : base(id => id.Value, value => TransactionId.From(value))
+    {
+    }
+}
+```
+
+El Domain NO tiene conocimiento de estos converters. No necesita atributos de EF Core, ni implementar interfaces de persistencia. Es el Infrastructure quien se adapta al Domain (no al revés).
+
+Para `Money`, se utiliza un **Owned Type** en lugar de un converter, produciendo dos columnas en la tabla:
+- `Amount_Amount` (decimal)
+- `Amount_Currency` (string)
+
+---
+
 # Decisiones Arquitectónicas
 
 Durante este proyecto se tomaron las siguientes decisiones.
@@ -240,6 +293,11 @@ Durante este proyecto se tomaron las siguientes decisiones.
 | Encapsular Guid | Type Safety |
 | Validar en el constructor | Garantizar objetos válidos |
 | No usar librerías externas | Aprender la implementación desde cero |
+| ValueConverter para IDs | Mapear a DB sin modificar el Domain |
+| Owned Type para Money | Dos columnas sin modificar el Domain |
+| Guard.AgainstEmptyGuid | Centralizar validación de Guid.Empty (tres VOs idénticos) |
+| Guard.AgainstNegative | Validar Amount no negativo en Money |
+| Guard.AgainstNullOrWhiteSpace | Validar Currency no vacío en Money |
 
 ---
 
@@ -264,6 +322,7 @@ Durante este proyecto se tomaron las siguientes decisiones.
 - ¿Qué problema resuelven los Strongly Typed IDs?
 - ¿Qué es Primitive Obsession?
 - ¿Por qué los Value Objects deben ser inmutables?
+- ¿Cómo se mapean Value Objects a la base de datos sin contaminar el Domain?
 
 ---
 
@@ -281,6 +340,8 @@ Durante este proyecto se tomaron las siguientes decisiones.
 | Primitive Obsession | Obsesión por Primitivos |
 | Domain Model | Modelo de Dominio |
 | Business Rule | Regla de Negocio |
+| Value Converter | Convertidor de Valor |
+| Owned Type | Tipo Propietario |
 
 ---
 
@@ -296,11 +357,14 @@ Permiten:
 - evitar Primitive Obsession
 - escribir código más mantenible
 
-En este proyecto ya existen tres ejemplos:
+En este proyecto ya existen cuatro ejemplos:
 
 - Money
 - TransactionId
 - CustomerId
+- FraudRuleId
+
+Todos los Value Objects del proyecto centralizan su validación de precondiciones (null, empty GUID, negative) a través de la clase `Guard` en el Domain, en lugar de realizar comprobaciones manuales. Esto reduce la duplicación y mantiene los constructores enfocados en la lógica del dominio.
 
 ---
 
@@ -321,6 +385,9 @@ Current implementation:
 - Money
 - TransactionId
 - CustomerId
+- FraudRuleId
+
+EF Core mapping is done via ValueConverters and Owned Types in Infrastructure — the Domain remains pure.
 
 ---
 

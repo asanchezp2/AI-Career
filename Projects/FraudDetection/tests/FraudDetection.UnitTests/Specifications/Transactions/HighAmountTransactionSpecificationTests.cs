@@ -21,10 +21,38 @@ public class HighAmountTransactionSpecificationTests
     }
 
     [Fact]
-    public void IsSatisfiedBy_AmountEqualToThreshold_ReturnsTrue()
+    public void IsSatisfiedBy_AmountEqualToThreshold_ReturnsFalse()
     {
         // Arrange
         var transaction = CreateTransaction(10000);
+        var specification = new HighAmountTransactionSpecification(10000);
+
+        // Act
+        var result = specification.IsSatisfiedBy(transaction);
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsSatisfiedBy_AmountExactlyAtBoundary_DoesNotMatch()
+    {
+        // Arrange
+        var transaction = CreateTransaction(10000.00m);
+        var specification = new HighAmountTransactionSpecification(10000);
+
+        // Act
+        var result = specification.IsSatisfiedBy(transaction);
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsSatisfiedBy_AmountJustAboveThreshold_ReturnsTrue()
+    {
+        // Arrange
+        var transaction = CreateTransaction(10000.01m);
         var specification = new HighAmountTransactionSpecification(10000);
 
         // Act
@@ -75,21 +103,7 @@ public class HighAmountTransactionSpecificationTests
     }
 
     [Fact]
-    public void IsSatisfiedBy_ZeroThreshold_AnyAmountReturnsTrue()
-    {
-        // Arrange
-        var transaction = CreateTransaction(0);
-        var specification = new HighAmountTransactionSpecification(0);
-
-        // Act
-        var result = specification.IsSatisfiedBy(transaction);
-
-        // Assert
-        Assert.True(result);
-    }
-
-    [Fact]
-    public void IsSatisfiedBy_ThresholdZeroAndAmountPositive_ReturnsTrue()
+    public void IsSatisfiedBy_ZeroThresholdAndPositiveAmount_ReturnsTrue()
     {
         // Arrange
         var transaction = CreateTransaction(1);
@@ -100,6 +114,20 @@ public class HighAmountTransactionSpecificationTests
 
         // Assert
         Assert.True(result);
+    }
+
+    [Fact]
+    public void IsSatisfiedBy_ZeroThresholdAndZeroAmount_ReturnsFalse()
+    {
+        // Arrange
+        var transaction = CreateTransaction(0);
+        var specification = new HighAmountTransactionSpecification(0);
+
+        // Act
+        var result = specification.IsSatisfiedBy(transaction);
+
+        // Assert
+        Assert.False(result);
     }
 
     [Fact]
@@ -125,8 +153,8 @@ public class HighAmountTransactionSpecificationTests
         var resultEur = specification.IsSatisfiedBy(transactionEur);
 
         // Assert
-        Assert.True(resultUsd);
-        Assert.True(resultEur);
+        Assert.False(resultUsd);
+        Assert.False(resultEur);
     }
 
     private static Transaction CreateTransaction(decimal amount, string currency = "USD")
@@ -134,6 +162,7 @@ public class HighAmountTransactionSpecificationTests
         return new Transaction(
             TransactionId.New(),
             CustomerId.New(),
-            new Money(amount, currency));
+            new Money(amount, currency),
+            DateTime.UtcNow);
     }
 }

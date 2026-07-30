@@ -1,59 +1,64 @@
-# Fraud Detection API - Current Task
+# Fraud Detection API — Current Task
 
-## Current Sprint
+## Status
 
-Sprint 3
+**Phase 5/5 — Documentation Polish, Health Check, Exception Middleware, Performance Tests — COMPLETED ✅**
 
-## Current Task
-
-EF Core Persistence — COMPLETED ✅
+**The Fraud Detection Challenge is COMPLETE.**
 
 ## What's Done
 
-### Sprint 1 — Solution & Domain Foundation
-- ✅ Solution structure (7 projects, all references, .editorconfig, .gitignore)
-- ✅ Transaction Entity with behavior (Approve, Reject, MarkForReview)
-- ✅ Value Objects (Money, TransactionId, CustomerId, FraudRuleId)
-- ✅ TransactionStatus Enum
-- ✅ FraudRule entity (RiskScore 0-100, Enable/Disable/Rename/ChangeRiskScore behavior)
+### Phase 1/5 — Foundation (Sprints 1-6)
+- ✅ Solution structure, Domain layer, Application layer, API layer
+- ✅ EF Core + SQL Server persistence infrastructure
+- ✅ InMemory + DbFraudRuleProvider
 
-### Sprint 2 — Application & API Layer
-- ✅ FluentValidation for AnalyzeTransactionCommand (9 tests)
-- ✅ Vertical Slice folder structure (Features/Transactions/AnalyzeTransaction)
-- ✅ CQRS Handler for AnalyzeTransaction (explicit, no MediatR)
-- ✅ AnalyzeTransactionResult DTO
-- ✅ Specification Pattern (ISpecification + HighAmountTransactionSpecification)
-- ✅ FraudRuleEngine Domain Service (13 tests)
-- ✅ FraudRuleEngine integrated into CQRS Handler (DI, InMemory provider, status applied)
-- ✅ API endpoint (POST /api/transactions/analyze) — Minimal API, FluentValidation, Swagger (8 integration tests)
-- ✅ KnowledgeBase documentation (Value-Objects.md, Entities.md, Validation.md, Vertical-Slice.md, Specification-Pattern.md)
+### Phase 2/5 — Guard + Result Pattern
+- ✅ Guard class (7 precondition check methods)
+- ✅ Result / Result<T> for state transitions
+- ✅ Amount boundary alignment (Domain as source of truth)
 
-### Sprint 3 — Persistence Layer
-- ✅ EF Core 8.0.11 packages (SqlServer + Design)
-- ✅ Value Converters (TransactionId, CustomerId, FraudRuleId, TransactionStatus)
-- ✅ TransactionConfiguration (Money as Owned Entity, converters, precision)
-- ✅ FraudRuleConfiguration (RuleName max length, index on IsEnabled)
-- ✅ FraudDetectionDbContext (DbSets + ApplyConfigurationsFromAssembly)
-- ✅ DbFraudRuleProvider (EF Core implementation of IFraudRuleProvider)
-- ✅ appsettings.json connection string (SQL Server LocalDB)
-- ✅ Program.cs DI registration (DbContext + EF Core)
-- ✅ Enitity fixes for EF Core (private constructors, private setters)
-- ✅ 11 persistence integration tests (SQLite in-memory)
-- ✅ Migration SQL verified (Transactions + FraudRules tables)
+### Phase 3/5 — Fraud Business Logic
+- ✅ FraudRuleAction enum (Review, Reject)
+- ✅ VelocityTransactionSpecification
+- ✅ BlacklistCustomerSpecification
+- ✅ HighRiskCountrySpecification
+- ✅ Rejected status producible by engine
+
+### Phase 4/5 — Persistence + Velocity + E2E
+- ✅ ITransactionRepository port + EfTransactionRepository
+- ✅ Real velocity detection via DB queries
+- ✅ Transaction persistence after analysis
+- ✅ Country field on Transaction (ISO 3166-1 alpha-2)
+- ✅ Metadata dictionary stored as JSON column
+- ✅ HighRiskCountrySpecification fixed — uses Country, not Currency
+- ✅ DbFraudRuleProvider active — reads rules from DB, auto-migration + seeding on dev startup
+- ✅ API versioning (v1 route prefix)
+- ✅ GET /api/v1/transactions/{id} endpoint
+
+### Phase 5/5 — Documentation + Health + Middleware + Performance
+- ✅ ExceptionHandlingMiddleware (global exception handler with structured logging)
+- ✅ GET /health endpoint (DB connectivity check)
+- ✅ Performance benchmark tests (Stopwatch-based, < 100ms assertions)
+- ✅ CustomerId + CreatedAt composite index for velocity query optimization
+- ✅ AsNoTracking() for read queries
+- ✅ Structured logging with ILogger<T> in handler and middleware
+- ✅ Timestamp input field on command (client-provided, stored as CreatedAt)
+- ✅ Documentation audit — all docs updated to reflect Phase 5/5 completion
+- ✅ Architecture Decision Log extended to ADR-033
+- ✅ .gitignore audit — full coverage confirmed
+- ✅ Final project report (OPENCODE_RETURN.md)
 
 ## Test Results
-- **Unit tests:** 100 passed
-- **Integration tests:** 19 passed (8 API + 11 persistence)
-- **Total:** 119 tests, 0 build errors, 0 warnings
+- **Unit tests:** 158 passed
+- **Integration tests:** 29 passed
+- **Total:** 191 tests, 0 build errors, 0 warnings
 
-## What's Next
-
-- [ ] Guard clauses in SharedKernel
-- [ ] Result pattern in SharedKernel
-- [ ] Composite Specifications (AND / OR / NOT)
-- [ ] Generate commits for FraudRuleEngine, API endpoint, and EF Core
-- [ ] User pushes all commits manually
-
-## Known Limitations
-- InMemoryFraudRuleProvider es el default. `DbFraudRuleProvider` está listo pero requiere SQL Server.
-- `GIT_TOKEN` no tiene scope `repo`. Los commits no se pueden pushear — el usuario hace push manual.
+## Deferred (Post-Completion)
+- Authentication / Authorization
+- Docker containerization
+- CI/CD pipeline
+- Blacklist CRUD API (dedicated table)
+- OpenTelemetry metrics and tracing
+- Kafka event streaming
+- AI-powered analysis

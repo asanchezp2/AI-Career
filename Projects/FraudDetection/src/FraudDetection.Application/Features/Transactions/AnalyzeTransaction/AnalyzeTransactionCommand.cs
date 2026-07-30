@@ -24,4 +24,19 @@ public class AnalyzeTransactionCommand
     /// The ISO-4217 currency code (3 characters, uppercase).
     /// </summary>
     public string Currency { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Optional ISO 3166-1 alpha-2 country code of the transaction origin.
+    /// </summary>
+    public string? Country { get; init; }
+
+    /// <summary>
+    /// Optional key-value metadata attached to the transaction.
+    /// </summary>
+    public Dictionary<string, string>? Metadata { get; init; }
+
+    /// <summary>
+    /// The date and time when the transaction occurred (UTC).
+    /// </summary>
+    public DateTime Timestamp { get; init; }
 }

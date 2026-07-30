@@ -55,7 +55,7 @@ public class FraudDetectionDbContextTests
         var transactionId = TransactionId.New();
         var customerId = CustomerId.New();
         var amount = new Money(1500.50m, "USD");
-        var transaction = new Transaction(transactionId, customerId, amount);
+        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow);
 
         context.Transactions.Add(transaction);
         await context.SaveChangesAsync();
@@ -81,7 +81,8 @@ public class FraudDetectionDbContextTests
         var transaction = new Transaction(
             TransactionId.New(),
             CustomerId.New(),
-            new Money(50000, "USD"));
+            new Money(50000, "USD"),
+            DateTime.UtcNow);
         transaction.MarkForReview();
 
         context.Transactions.Add(transaction);
@@ -153,7 +154,8 @@ public class FraudDetectionDbContextTests
         var transaction = new Transaction(
             TransactionId.New(),
             CustomerId.New(),
-            amount);
+            amount,
+            DateTime.UtcNow);
 
         context.Transactions.Add(transaction);
         await context.SaveChangesAsync();
@@ -174,9 +176,9 @@ public class FraudDetectionDbContextTests
         using var context = CreateDbContext();
 
         var tx1 = new Transaction(
-            TransactionId.New(), CustomerId.New(), new Money(100, "USD"));
+            TransactionId.New(), CustomerId.New(), new Money(100, "USD"), DateTime.UtcNow);
         var tx2 = new Transaction(
-            TransactionId.New(), CustomerId.New(), new Money(200, "EUR"));
+            TransactionId.New(), CustomerId.New(), new Money(200, "EUR"), DateTime.UtcNow);
 
         context.Transactions.AddRange(tx1, tx2);
         await context.SaveChangesAsync();
@@ -195,7 +197,8 @@ public class FraudDetectionDbContextTests
         var transaction = new Transaction(
             TransactionId.New(),
             CustomerId.New(),
-            new Money(999.99m, "MXN"));
+            new Money(999.99m, "MXN"),
+            DateTime.UtcNow);
 
         context.Transactions.Add(transaction);
         await context.SaveChangesAsync();

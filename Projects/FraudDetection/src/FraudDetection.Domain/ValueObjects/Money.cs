@@ -24,11 +24,8 @@ public record Money
     /// <exception cref="ArgumentException">Thrown when currency is invalid.</exception>
     public Money(decimal amount, string currency)
     {
-        if (amount < 0)
-            throw new ArgumentOutOfRangeException(nameof(amount), "Amount cannot be negative.");
-
-        if (string.IsNullOrWhiteSpace(currency))
-            throw new ArgumentException("Currency cannot be null or empty.", nameof(currency));
+        Guard.AgainstNegative(amount, nameof(amount));
+        Guard.AgainstNullOrWhiteSpace(currency, nameof(currency));
 
         if (currency.Length != 3)
             throw new ArgumentException("Currency must be exactly 3 characters.", nameof(currency));

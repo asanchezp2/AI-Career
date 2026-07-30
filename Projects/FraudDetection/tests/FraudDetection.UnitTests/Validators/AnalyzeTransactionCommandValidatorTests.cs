@@ -16,7 +16,8 @@ public class AnalyzeTransactionCommandValidatorTests
             TransactionId = Guid.NewGuid(),
             CustomerId = Guid.NewGuid(),
             Amount = 100,
-            Currency = "USD"
+            Currency = "USD",
+            Timestamp = DateTime.UtcNow
         };
 
         // Act
@@ -24,6 +25,26 @@ public class AnalyzeTransactionCommandValidatorTests
 
         // Assert
         result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public async Task Timestamp_Required_ReturnsValidationError()
+    {
+        // Arrange
+        var command = new AnalyzeTransactionCommand
+        {
+            TransactionId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            Amount = 100,
+            Currency = "USD"
+        };
+
+        // Act
+        var result = await _validator.TestValidateAsync(command);
+
+        // Assert
+        result.ShouldHaveValidationErrorFor(x => x.Timestamp)
+            .WithErrorMessage("Timestamp is required.");
     }
 
     [Fact]
@@ -67,7 +88,7 @@ public class AnalyzeTransactionCommandValidatorTests
     }
 
     [Fact]
-    public async Task Amount_Zero_FailsValidation()
+    public async Task Amount_Zero_PassesValidation()
     {
         // Arrange
         var command = new AnalyzeTransactionCommand
@@ -82,8 +103,7 @@ public class AnalyzeTransactionCommandValidatorTests
         var result = await _validator.TestValidateAsync(command);
 
         // Assert
-        result.ShouldHaveValidationErrorFor(x => x.Amount)
-            .WithErrorMessage("Amount must be greater than zero.");
+        result.ShouldNotHaveValidationErrorFor(x => x.Amount);
     }
 
     [Fact]
@@ -103,7 +123,7 @@ public class AnalyzeTransactionCommandValidatorTests
 
         // Assert
         result.ShouldHaveValidationErrorFor(x => x.Amount)
-            .WithErrorMessage("Amount must be greater than zero.");
+            .WithErrorMessage("Amount must be greater than or equal to zero.");
     }
 
     [Fact]

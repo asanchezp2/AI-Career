@@ -31,9 +31,7 @@ public record TransactionId
     /// <exception cref="ArgumentException">Thrown when Guid.Empty is provided.</exception>
     private TransactionId(Guid value)
     {
-        if (value == Guid.Empty)
-            throw new ArgumentException("A transaction identifier must contain a valid Guid.", nameof(value));
-
+        Guard.AgainstEmptyGuid(value, nameof(value));
         Value = value;
     }
 }

@@ -260,12 +260,99 @@ public class FraudRuleEngineTests
         Assert.Contains(rule2, result.MatchedRules);
     }
 
+    [Fact]
+    public void Evaluate_RejectionRuleMatched_ReturnsRejected()
+    {
+        // Arrange
+        var transaction = CreateTransaction(100);
+        var rejectRule = new FraudRule(FraudRuleId.New(), "Blacklist", 100, FraudRuleAction.Reject);
+        var rules = new[] { rejectRule };
+        var specifications = new Dictionary<string, ISpecification>
+        {
+            ["Blacklist"] = new AlwaysTrueSpecification()
+        };
+
+        // Act
+        var result = _engine.Evaluate(transaction, rules, specifications);
+
+        // Assert
+        Assert.Equal(100, result.TotalRiskScore);
+        Assert.Equal(TransactionStatus.Rejected, result.RecommendedStatus);
+        Assert.Single(result.MatchedRules);
+    }
+
+    [Fact]
+    public void Evaluate_NoRejectionRule_ButReviewRuleMatched_ReturnsUnderReview()
+    {
+        // Arrange
+        var transaction = CreateTransaction(20000);
+        var reviewRule = new FraudRule(FraudRuleId.New(), "HighAmount", 50, FraudRuleAction.Review);
+        var rules = new[] { reviewRule };
+        var specifications = new Dictionary<string, ISpecification>
+        {
+            ["HighAmount"] = new HighAmountTransactionSpecification(10000)
+        };
+
+        // Act
+        var result = _engine.Evaluate(transaction, rules, specifications);
+
+        // Assert
+        Assert.Equal(50, result.TotalRiskScore);
+        Assert.Equal(TransactionStatus.UnderReview, result.RecommendedStatus);
+    }
+
+    [Fact]
+    public void Evaluate_RejectionAndReviewRulesMatched_ReturnsRejected()
+    {
+        // Arrange
+        var transaction = CreateTransaction(20000);
+        var rejectRule = new FraudRule(FraudRuleId.New(), "Blacklist", 100, FraudRuleAction.Reject);
+        var reviewRule = new FraudRule(FraudRuleId.New(), "HighAmount", 50, FraudRuleAction.Review);
+        var rules = new[] { rejectRule, reviewRule };
+        var specifications = new Dictionary<string, ISpecification>
+        {
+            ["Blacklist"] = new AlwaysTrueSpecification(),
+            ["HighAmount"] = new HighAmountTransactionSpecification(10000)
+        };
+
+        // Act
+        var result = _engine.Evaluate(transaction, rules, specifications);
+
+        // Assert
+        Assert.Equal(150, result.TotalRiskScore);
+        Assert.Equal(TransactionStatus.Rejected, result.RecommendedStatus);
+        Assert.Equal(2, result.MatchedRules.Count);
+    }
+
+    [Fact]
+    public void Evaluate_DisabledRejectionRule_IsIgnored()
+    {
+        // Arrange
+        var transaction = CreateTransaction(100);
+        var rejectRule = new FraudRule(FraudRuleId.New(), "Blacklist", 100, FraudRuleAction.Reject);
+        rejectRule.Disable();
+        var rules = new[] { rejectRule };
+        var specifications = new Dictionary<string, ISpecification>
+        {
+            ["Blacklist"] = new AlwaysTrueSpecification()
+        };
+
+        // Act
+        var result = _engine.Evaluate(transaction, rules, specifications);
+
+        // Assert
+        Assert.Equal(0, result.TotalRiskScore);
+        Assert.Equal(TransactionStatus.Approved, result.RecommendedStatus);
+        Assert.Empty(result.MatchedRules);
+    }
+
     private static Transaction CreateTransaction(decimal amount, string currency = "USD")
     {
         return new Transaction(
             TransactionId.New(),
             CustomerId.New(),
-            new Money(amount, currency));
+            new Money(amount, currency),
+            DateTime.UtcNow);
     }
 
     private static FraudRule CreateRule(string name, int riskScore)

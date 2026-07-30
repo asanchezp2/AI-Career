@@ -1,5 +1,3 @@
-using FraudDetection.Domain.Enums;
-
 namespace FraudDetection.Application.Features.Transactions.AnalyzeTransaction;
 
 /// <summary>
@@ -13,9 +11,14 @@ public class AnalyzeTransactionResult
     public Guid TransactionId { get; }
 
     /// <summary>
-    /// The status of the transaction after analysis.
+    /// The numeric status code of the transaction after analysis.
     /// </summary>
-    public TransactionStatus Status { get; }
+    public int StatusCode { get; }
+
+    /// <summary>
+    /// The string representation of the transaction status after analysis.
+    /// </summary>
+    public string Status { get; }
 
     /// <summary>
     /// The total risk score calculated by the fraud rule engine.
@@ -24,12 +27,24 @@ public class AnalyzeTransactionResult
     public int TotalRiskScore { get; }
 
     /// <summary>
+    /// The names of the fraud rules that were matched during analysis.
+    /// </summary>
+    public IReadOnlyCollection<string> MatchedRules { get; }
+
+    /// <summary>
     /// Creates a new AnalyzeTransactionResult instance.
     /// </summary>
-    public AnalyzeTransactionResult(Guid transactionId, TransactionStatus status, int totalRiskScore = 0)
+    public AnalyzeTransactionResult(
+        Guid transactionId,
+        int statusCode,
+        string status,
+        int totalRiskScore = 0,
+        IReadOnlyCollection<string>? matchedRules = null)
     {
         TransactionId = transactionId;
+        StatusCode = statusCode;
         Status = status;
         TotalRiskScore = totalRiskScore;
+        MatchedRules = matchedRules ?? Array.Empty<string>();
     }
 }

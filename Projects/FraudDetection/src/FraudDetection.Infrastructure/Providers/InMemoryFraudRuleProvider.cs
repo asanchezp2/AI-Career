@@ -1,5 +1,6 @@
 using FraudDetection.Application.Abstractions;
 using FraudDetection.Domain.Entities;
+using FraudDetection.Domain.Enums;
 using FraudDetection.Domain.Specifications;
 using FraudDetection.Domain.Specifications.Transactions;
 using FraudDetection.Domain.ValueObjects;
@@ -29,7 +30,10 @@ public sealed class InMemoryFraudRuleProvider : IFraudRuleProvider
     {
         return new List<FraudRule>
         {
-            new(FraudRuleId.New(), "HighAmount", 50)
+            new(FraudRuleId.New(), "HighAmount", 50, FraudRuleAction.Review),
+            new(FraudRuleId.New(), "Velocity", 70, FraudRuleAction.Reject),
+            new(FraudRuleId.New(), "Blacklist", 100, FraudRuleAction.Reject),
+            new(FraudRuleId.New(), "HighRiskCountry", 30, FraudRuleAction.Review)
         }.AsReadOnly();
     }
 
@@ -37,7 +41,26 @@ public sealed class InMemoryFraudRuleProvider : IFraudRuleProvider
     {
         return new Dictionary<string, ISpecification>
         {
-            ["HighAmount"] = new HighAmountTransactionSpecification(10000m)
+            ["HighAmount"] = new HighAmountTransactionSpecification(10000m),
+            ["Velocity"] = new VelocityTransactionSpecification(maxTransactionCount: 5, timeWindow: TimeSpan.FromHours(1)),
+            ["Blacklist"] = new BlacklistCustomerSpecification(GetBlacklistedCustomers()),
+            ["HighRiskCountry"] = new HighRiskCountrySpecification(GetHighRiskCountryCodes())
         };
+    }
+
+    private static IEnumerable<CustomerId> GetBlacklistedCustomers()
+    {
+        // Pre-seeded blacklist for demo purposes.
+        // In production, this would be loaded from a persistent store.
+        return new List<CustomerId>
+        {
+            CustomerId.From(Guid.Parse("00000000-0000-0000-0000-000000000001"))
+        };
+    }
+
+    private static IEnumerable<string> GetHighRiskCountryCodes()
+    {
+        // ISO 3166-1 alpha-2 country codes for high-risk regions.
+        return new[] { "IR", "KP", "SY", "VE" };
     }
 }

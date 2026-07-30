@@ -1,16 +1,17 @@
+using FraudDetection.Domain.Enums;
 using FraudDetection.Domain.ValueObjects;
 
 namespace FraudDetection.Domain.Entities;
 
 /// <summary>
-/// Represents a fraud detection rule with configurable risk scoring.
+/// Represents a fraud detection rule with configurable risk scoring and action.
 /// </summary>
 public class FraudRule
 {
     /// <summary>
     /// EF Core parameterless constructor (used for materialization only).
     /// </summary>
-    private FraudRule() { Id = null!; RuleName = null!; }
+    private FraudRule() { Id = null!; RuleName = null!; Action = FraudRuleAction.Review; }
 
     /// <summary>
     /// The unique identifier of this fraud rule.
@@ -28,6 +29,11 @@ public class FraudRule
     public int RiskScore { get; private set; }
 
     /// <summary>
+    /// The action to take when this rule is matched.
+    /// </summary>
+    public FraudRuleAction Action { get; private set; }
+
+    /// <summary>
     /// Whether this rule is currently enabled.
     /// </summary>
     public bool IsEnabled { get; private set; }
@@ -38,18 +44,20 @@ public class FraudRule
     /// <param name="id">The unique rule identifier.</param>
     /// <param name="ruleName">The name of the rule.</param>
     /// <param name="riskScore">The risk score (0–100).</param>
+    /// <param name="action">The action to take when this rule matches. Defaults to Review.</param>
     /// <exception cref="ArgumentNullException">Thrown when id is null.</exception>
     /// <exception cref="ArgumentException">Thrown when ruleName is null, empty, or whitespace.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when riskScore is outside the 0–100 range.</exception>
-    public FraudRule(FraudRuleId id, string ruleName, int riskScore)
+    public FraudRule(FraudRuleId id, string ruleName, int riskScore, FraudRuleAction action = FraudRuleAction.Review)
     {
-        ArgumentNullException.ThrowIfNull(id);
-        ValidateRuleName(ruleName);
-        ValidateRiskScore(riskScore);
+        Guard.AgainstNull(id, nameof(id));
+        Guard.AgainstNullOrWhiteSpace(ruleName, nameof(ruleName));
+        Guard.AgainstOutOfRange(riskScore, 0, 100, nameof(riskScore));
 
         Id = id;
         RuleName = ruleName;
         RiskScore = riskScore;
+        Action = action;
         IsEnabled = true;
     }
 
@@ -70,7 +78,7 @@ public class FraudRule
     /// <exception cref="ArgumentOutOfRangeException">Thrown when newRiskScore is outside the 0–100 range.</exception>
     public void ChangeRiskScore(int newRiskScore)
     {
-        ValidateRiskScore(newRiskScore);
+        Guard.AgainstOutOfRange(newRiskScore, 0, 100, nameof(newRiskScore));
         RiskScore = newRiskScore;
     }
 
@@ -81,26 +89,8 @@ public class FraudRule
     /// <exception cref="ArgumentException">Thrown when newName is null, empty, or whitespace.</exception>
     public void Rename(string newName)
     {
-        ValidateRuleName(newName);
+        Guard.AgainstNullOrWhiteSpace(newName, nameof(newName));
         RuleName = newName;
-    }
-
-    /// <summary>
-    /// Validates that the risk score is within the 0–100 range.
-    /// </summary>
-    private static void ValidateRiskScore(int score)
-    {
-        if (score < 0 || score > 100)
-            throw new ArgumentOutOfRangeException(nameof(score), score, "Risk score must be between 0 and 100.");
-    }
-
-    /// <summary>
-    /// Validates that the rule name is not null, empty, or whitespace.
-    /// </summary>
-    private static void ValidateRuleName(string name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Rule name cannot be null, empty, or whitespace.", nameof(name));
     }
 
     /// <summary>

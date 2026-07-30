@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using FluentValidation;
 
 namespace FraudDetection.Application.Features.Transactions.AnalyzeTransaction;
@@ -7,6 +8,8 @@ namespace FraudDetection.Application.Features.Transactions.AnalyzeTransaction;
 /// </summary>
 public class AnalyzeTransactionValidator : AbstractValidator<AnalyzeTransactionCommand>
 {
+    private static readonly Regex CountryCodeRegex = new("^[A-Z]{2}$", RegexOptions.Compiled);
+
     public AnalyzeTransactionValidator()
     {
         RuleFor(x => x.TransactionId)
@@ -18,8 +21,8 @@ public class AnalyzeTransactionValidator : AbstractValidator<AnalyzeTransactionC
             .WithMessage("Customer ID is required.");
 
         RuleFor(x => x.Amount)
-            .GreaterThan(0)
-            .WithMessage("Amount must be greater than zero.");
+            .GreaterThanOrEqualTo(0)
+            .WithMessage("Amount must be greater than or equal to zero.");
 
         RuleFor(x => x.Currency)
             .NotEmpty()
@@ -28,5 +31,13 @@ public class AnalyzeTransactionValidator : AbstractValidator<AnalyzeTransactionC
             .WithMessage("Currency must be exactly 3 characters.")
             .Must(currency => currency == currency.ToUpperInvariant())
             .WithMessage("Currency must be uppercase.");
+
+        RuleFor(x => x.Timestamp)
+            .NotEmpty()
+            .WithMessage("Timestamp is required.");
+
+        RuleFor(x => x.Country)
+            .Must(country => country is null || CountryCodeRegex.IsMatch(country))
+            .WithMessage("Country must be a valid ISO 3166-1 alpha-2 code (2 uppercase letters).");
     }
 }

@@ -18,7 +18,7 @@ La igualdad se define por identidad, no por valores.
 | Igualdad | Por identidad (ID) | Por valores |
 | Mutabilidad | ✅ Puede cambiar estado | ❌ Inmutable |
 | Lifecycle | ✅ Tiene ciclo de vida | ❌ Se reemplaza |
-| Ejemplo | Transaction | Money |
+| Ejemplo | Transaction, FraudRule | Money |
 
 ---
 
@@ -156,18 +156,122 @@ Transaction representa una transacción financiera.
 - `Money Amount` — monto monetario (Value Object)
 - `DateTime CreatedAt` — fecha de creación (UTC)
 - `TransactionStatus Status` — estado actual
+- `string? Country` — código ISO 3166-1 alpha-2 del país de origen de la transacción (opcional, nullable)
+- `Dictionary<string, string> Metadata` — metadatos opcionales en formato clave-valor
+- `int RecentTransactionCount` — número de transacciones recientes del cliente, usado por `VelocityTransactionSpecification`. Actualmente se consulta desde la base de datos mediante `ITransactionRepository.GetTransactionCountSinceAsync()` en lugar de usar un valor hardcodeado.
 
 **Behavior:**
 
-- `Approve()` — transiciona a Approved
-- `Reject()` — transiciona a Rejected
-- `MarkForReview()` — transiciona a UnderReview
+- `Approve()` — transiciona a Approved, retorna `Result`
+- `Reject()` — transiciona a Rejected, retorna `Result`
+- `MarkForReview()` — transiciona a UnderReview, retorna `Result`
 
 ```csharp
-public void Approve() => ChangeStatus(TransactionStatus.Approved);
+public Result Approve() => ChangeStatus(TransactionStatus.Approved);
 ```
 
-El method privado `ChangeStatus()` centraliza la validación.
+El method privado `ChangeStatus()` centraliza la validación. A diferencia de la implementación inicial (que lanzaba `InvalidOperationException`), ahora retorna `Result.Failure(...)` con un mensaje de error cuando la transición no es válida, y `Result.Success()` cuando es exitosa.
+
+Esto permite que el llamante (el Handler) maneje el resultado explícitamente:
+
+```csharp
+var result = transaction.Approve();
+if (result.IsFailure)
+    throw new InvalidOperationException(result.Error); // Error de programación
+```
+
+**¿Por qué Result en lugar de excepción?** Las transiciones de estado representan flujos esperados del dominio. Retornar `Result` hace visible en el código que la operación puede fallar por razones de negocio (transición inválida). Las excepciones se reservan para errores de programación (null, argumentos inválidos).
+
+---
+
+## FraudRule example
+
+FraudRule representa una regla configurable de detección de fraude.
+
+Se agregó en Sprint 2 junto con FraudRuleEngine y Specification Pattern.
+
+**Propiedades:**
+
+- `FraudRuleId Id` — identificador único (Strongly Typed ID)
+- `string RuleName` — nombre descriptivo (ej: "HighAmount", "CrossBorder")
+- `int RiskScore` — puntaje de riesgo (0–100)
+- `FraudRuleAction Action` — acción a tomar cuando la regla aplica (`Review` o `Reject`)
+- `bool IsEnabled` — si la regla está activa
+
+**Behavior:**
+
+- `Enable()` / `Disable()` — activar/desactivar la regla
+- `Rename(string newName)` — cambiar el nombre (valida no vacío)
+- `ChangeRiskScore(int newRiskScore)` — cambiar puntaje (valida 0–100)
+- `Action (FraudRuleAction)` — comportamiento incluido en el constructor, default `Review`
+
+```csharp
+public class FraudRule
+{
+    public FraudRuleId Id { get; private set; }
+    public string RuleName { get; private set; }
+    public int RiskScore { get; private set; }
+    public FraudRuleAction Action { get; private set; }
+    public bool IsEnabled { get; private set; }
+
+    public FraudRule(FraudRuleId id, string ruleName, int riskScore, FraudRuleAction action = FraudRuleAction.Review)
+    {
+        Guard.AgainstNull(id, nameof(id));
+        Guard.AgainstNullOrWhiteSpace(ruleName, nameof(ruleName));
+        Guard.AgainstOutOfRange(riskScore, 0, 100, nameof(riskScore));
+        Id = id;
+        RuleName = ruleName;
+        RiskScore = riskScore;
+        Action = action;
+        IsEnabled = true;
+    }
+
+    public void Enable() => IsEnabled = true;
+    public void Disable() => IsEnabled = false;
+
+    public void ChangeRiskScore(int newRiskScore)
+    {
+        Guard.AgainstOutOfRange(newRiskScore, 0, 100, nameof(newRiskScore));
+        RiskScore = newRiskScore;
+    }
+
+    public void Rename(string newName)
+    {
+        Guard.AgainstNullOrWhiteSpace(newName, nameof(newName));
+        RuleName = newName;
+    }
+}
+```
+
+**Decisiones de diseño:**
+- RiskScore validado en rango 0–100 mediante `Guard.AgainstOutOfRange` (invariante del dominio)
+- RuleName validado no vacío mediante `Guard.AgainstNullOrWhiteSpace` (invariante del dominio)
+- Identity basada en FraudRuleId (Value Object, no Guid primitivo)
+- Equality implementada por ID (`Equals(FraudRuleId)`)
+- Los métodos privados `ValidateRiskScore` y `ValidateRuleName` fueron reemplazados por llamadas directas a `Guard` en Phase 2/5 — menos código, mismos invariantes
+
+---
+
+## EF Core Materialization
+
+Las Entities de este proyecto utilizan **private constructors** y **private setters** para permitir que EF Core materialice objetos desde la base de datos sin exponer setters públicos:
+
+```csharp
+// EF Core parameterless constructor (used for materialization only)
+private FraudRule() { Id = null!; RuleName = null!; Action = FraudRuleAction.Review; }
+
+// Public constructor (used by application code)
+public FraudRule(FraudRuleId id, string ruleName, int riskScore) { ... }
+```
+
+Esto es una **práctica estándar** en DDD con EF Core:
+
+- El constructor privado solo es usado por EF Core via reflection
+- No debilita la encapsulación porque el código de aplicación nunca lo invoca
+- Los `private set` en propiedades permiten que EF Core establezca valores sin exponer mutabilidad pública
+- Las propiedades navegables (`null!`) se inicializan con el null-forgiving operator porque EF Core las asigna inmediatamente después de construir el objeto
+
+Esta técnica aparece en la documentación oficial de EF Core y es ampliamente utilizada en proyectos DDD.
 
 ---
 
@@ -199,15 +303,17 @@ En fraud detection, una transacción aprobada o rechazada ya fue evaluada.
 
 Cambiar ese estado crearía inconsistencia en el audit trail.
 
-El `ChangeStatus()` method garantiza esta regla:
+El `ChangeStatus()` method garantiza esta regla retornando `Result` en lugar de lanzar una excepción:
 
 ```csharp
-private void ChangeStatus(TransactionStatus newStatus)
+private Result ChangeStatus(TransactionStatus newStatus)
 {
     if (Status != TransactionStatus.Pending)
-        throw new InvalidOperationException(...);
+        return Result.Failure(
+            $"Only transactions in Pending status can change state. Current status: {Status}.");
 
     Status = newStatus;
+    return Result.Success();
 }
 ```
 
@@ -225,6 +331,9 @@ private void ChangeStatus(TransactionStatus newStatus)
 8. Evitar dependencias de infraestructura
 9. Crear methods que expresen la intención del negocio
 10. Documentar transiciones de estado permitidas
+11. Usar private constructors + private setters para EF Core (estándar en DDD)
+12. Centralizar validaciones de precondiciones con `Guard` (AgainstNull, AgainstOutOfRange, etc.)
+13. Usar `Result` para transiciones de estado que pueden fallar por reglas de negocio, reservar excepciones para errores de programación
 
 ---
 
@@ -240,6 +349,8 @@ private void ChangeStatus(TransactionStatus newStatus)
 8. Permitir transiciones de estado inválidas
 9. Agregar dependencias de infraestructura
 10. No documentar las transiciones de estado
+11. Lanzar excepciones para transiciones de estado esperadas (usar `Result` en su lugar)
+12. Repetir validaciones de null/range/empty en cada Entity en lugar de usar `Guard`
 
 ---
 
@@ -255,6 +366,10 @@ private void ChangeStatus(TransactionStatus newStatus)
 8. ¿Por qué usar Strongly Typed IDs en lugar de Guid?
 9. ¿Cuándo deberías crear una nueva Entity vs un Value Object?
 10. ¿Cómo afecta el diseño de Entities a la testabilidad?
+11. ¿Cómo maneja EF Core la materialización de Entities con constructores privados?
+12. ¿Por qué usar `Result` en lugar de excepciones para transiciones de estado?
+13. ¿Cuándo deberías usar una excepción vs un `Result` en el Domain?
+14. ¿Cuándo tiene sentido centralizar validaciones con una clase `Guard` vs mantenerlas inline?
 
 ---
 
@@ -282,6 +397,11 @@ private void ChangeStatus(TransactionStatus newStatus)
 | Property | Propiedad | Miembro de datos con get/set |
 | Private set | Setter privado | Setter accesible solo dentro de la clase |
 | Override | Sobrescribir | Reimplementar un method de la clase base |
+| Materialization | Materialización | Creación de objetos desde datos persistidos |
+| Guard | Guardián | Clase estática que centraliza validaciones de precondiciones |
+| Result Pattern | Patrón Resultado | Retornar éxito/fracaso en lugar de lanzar excepciones |
+| Precondition | Precondición | Condición que debe cumplirse antes de ejecutar lógica |
+| State Transition | Transición de Estado | Cambio de un estado a otro controlado por métodos |
 
 ---
 
@@ -295,8 +415,12 @@ private void ChangeStatus(TransactionStatus newStatus)
 - No exponer setters públicos
 - Controlar transiciones de estado through methods
 - Transaction es un ejemplo de Entity con identity, lifecycle y behavior
+- FraudRule es otro ejemplo con su propio comportamiento y validaciones
 - Las transiciones de estado deben ser validadas
 - El estado final (Approved/Rejected) no debe cambiar
+- Private constructors + private setters para EF Core es una práctica estándar
+- `Guard` centraliza validaciones de precondiciones (null, range, empty GUID, negative)
+- `Result` reemplaza excepciones en transiciones de estado esperadas (Approve, Reject, MarkForReview)
 
 ---
 
@@ -312,3 +436,8 @@ private void ChangeStatus(TransactionStatus newStatus)
 • Behavior belongs inside the Entity, not in services.
 • Strongly Typed IDs prevent mixing up identifiers.
 • Business rules belong in Domain, not Application.
+• FraudRule is a second entity example with Enable/Disable/Rename behavior.
+• EF Core private constructors are standard practice, not a design smell.
+• Guard class centralizes precondition validation (AgainstNull, AgainstEmptyGuid, etc.).
+• Result pattern makes state transition outcomes explicit (Success / Failure with error).
+• Use Result for expected business flows, exceptions for programming contract violations.

@@ -27,18 +27,15 @@ public class FraudRuleEngine
         IEnumerable<FraudRule> fraudRules,
         IReadOnlyDictionary<string, ISpecification> specifications)
     {
-        ArgumentNullException.ThrowIfNull(transaction);
-        ArgumentNullException.ThrowIfNull(fraudRules);
-        ArgumentNullException.ThrowIfNull(specifications);
+        Guard.AgainstNull(transaction, nameof(transaction));
+        Guard.AgainstNull(fraudRules, nameof(fraudRules));
+        Guard.AgainstNull(specifications, nameof(specifications));
 
         var matchedRules = new List<FraudRule>();
         var totalRiskScore = 0;
 
-        foreach (var rule in fraudRules)
+        foreach (var rule in fraudRules.Where(r => r.IsEnabled))
         {
-            if (!rule.IsEnabled)
-                continue;
-
             if (!specifications.TryGetValue(rule.RuleName, out var specification))
                 continue;
 
@@ -49,9 +46,13 @@ public class FraudRuleEngine
             }
         }
 
-        var recommendedStatus = totalRiskScore > 0
-            ? TransactionStatus.UnderReview
-            : TransactionStatus.Approved;
+        // Determine recommended status based on matched rule actions.
+        // Rejection rules take precedence over review rules.
+        var recommendedStatus = matchedRules.Any(r => r.Action == FraudRuleAction.Reject)
+            ? TransactionStatus.Rejected
+            : totalRiskScore > 0
+                ? TransactionStatus.UnderReview
+                : TransactionStatus.Approved;
 
         return new FraudRuleEngineResult(
             totalRiskScore,
