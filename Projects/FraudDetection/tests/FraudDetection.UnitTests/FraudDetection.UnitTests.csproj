@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FraudDetection.Domain\FraudDetection.Domain.csproj" />
     <ProjectReference Include="..\..\src\FraudDetection.Application\FraudDetection.Application.csproj" />
+    <ProjectReference Include="..\..\src\FraudDetection.Api\FraudDetection.Api.csproj" />
   </ItemGroup>
 
 </Project>

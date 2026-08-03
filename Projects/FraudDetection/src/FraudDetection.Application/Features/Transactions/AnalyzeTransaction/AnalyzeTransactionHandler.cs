@@ -3,6 +3,8 @@ using FraudDetection.Domain;
 using FraudDetection.Domain.Entities;
 using FraudDetection.Domain.Enums;
 using FraudDetection.Domain.Services;
+using FraudDetection.Domain.Specifications;
+using FraudDetection.Domain.Specifications.Transactions;
 using FraudDetection.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
 
@@ -17,6 +19,7 @@ public sealed class AnalyzeTransactionHandler
 {
     private readonly FraudRuleEngine _engine;
     private readonly IFraudRuleProvider _ruleProvider;
+    private readonly IBlacklistProvider _blacklistProvider;
     private readonly ITransactionRepository _transactionRepository;
     private readonly ILogger<AnalyzeTransactionHandler> _logger;
 
@@ -26,16 +29,19 @@ public sealed class AnalyzeTransactionHandler
     public AnalyzeTransactionHandler(
         FraudRuleEngine engine,
         IFraudRuleProvider ruleProvider,
+        IBlacklistProvider blacklistProvider,
         ITransactionRepository transactionRepository,
         ILogger<AnalyzeTransactionHandler> logger)
     {
         Guard.AgainstNull(engine, nameof(engine));
         Guard.AgainstNull(ruleProvider, nameof(ruleProvider));
+        Guard.AgainstNull(blacklistProvider, nameof(blacklistProvider));
         Guard.AgainstNull(transactionRepository, nameof(transactionRepository));
         Guard.AgainstNull(logger, nameof(logger));
 
         _engine = engine;
         _ruleProvider = ruleProvider;
+        _blacklistProvider = blacklistProvider;
         _transactionRepository = transactionRepository;
         _logger = logger;
     }
@@ -76,7 +82,18 @@ public sealed class AnalyzeTransactionHandler
 
         var rules = _ruleProvider.GetAllRules();
         var specifications = _ruleProvider.GetSpecifications();
-        var evaluation = _engine.Evaluate(transaction, rules, specifications);
+
+        // The blacklist is dynamic and database-backed. Refresh it on every analysis so
+        // recently added/removed customers are honored immediately, then layer it over
+        // the provider's static specifications (HighAmount, Velocity, HighRiskCountry).
+        var blacklistedCustomers = await _blacklistProvider.GetAllAsync(cancellationToken);
+        var effectiveSpecifications = new Dictionary<string, ISpecification>(specifications)
+        {
+            ["Blacklist"] = new BlacklistCustomerSpecification(
+                blacklistedCustomers.Select(b => b.CustomerId).ToList())
+        };
+
+        var evaluation = _engine.Evaluate(transaction, rules, effectiveSpecifications);
 
         var statusResult = ApplyRecommendedStatus(transaction, evaluation.RecommendedStatus);
         if (statusResult.IsFailure)

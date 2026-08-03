@@ -18,7 +18,7 @@ La igualdad se define por identidad, no por valores.
 | Igualdad | Por identidad (ID) | Por valores |
 | Mutabilidad | ✅ Puede cambiar estado | ❌ Inmutable |
 | Lifecycle | ✅ Tiene ciclo de vida | ❌ Se reemplaza |
-| Ejemplo | Transaction, FraudRule | Money |
+| Ejemplo | Transaction, FraudRule, BlacklistedCustomer | Money |
 
 ---
 
@@ -252,6 +252,49 @@ public class FraudRule
 
 ---
 
+## BlacklistedCustomer example
+
+BlacklistedCustomer representa un cliente marcado explícitamente como lista negra (añadido en Phase 6/5).
+
+**Propiedades:**
+
+- `CustomerId CustomerId` — identidad del cliente (Strongly Typed ID, clave primaria)
+- `string Reason` — motivo del bloqueo (máximo 200 caracteres, no vacío)
+- `DateTime CreatedAt` — fecha de creación (UTC)
+
+**Comportamiento:**
+
+- Constructor público valida `CustomerId` (no null) y `Reason` (no vacío) mediante `Guard`
+- No tiene setters públicos — la identidad y el motivo se fijan al crear
+- Constructor privado con `= null!` para materialización de EF Core (misma convención que `Transaction` y `FraudRule`)
+
+```csharp
+public class BlacklistedCustomer
+{
+    public CustomerId CustomerId { get; private set; }
+    public string Reason { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+
+    private BlacklistedCustomer() { CustomerId = null!; Reason = null!; } // EF Core
+
+    public BlacklistedCustomer(CustomerId customerId, string reason)
+    {
+        Guard.AgainstNull(customerId, nameof(customerId));
+        Guard.AgainstNullOrWhiteSpace(reason, nameof(reason));
+        CustomerId = customerId;
+        Reason = reason;
+        CreatedAt = DateTime.UtcNow;
+    }
+}
+```
+
+**Decisiones de diseño:**
+- Es una Entity (no un Value Object) porque representa un registro persistido con ciclo de vida propio, aunque su identidad es el `CustomerId` del cliente
+- La lista negra es **dinámica y respaldada por base de datos**: el `AnalyzeTransactionHandler` carga los clientes mediante `IBlacklistProvider` en cada request y construye una `BlacklistCustomerSpecification` nueva con los IDs actuales — los cambios surten efecto inmediatamente
+- La tabla `BlacklistedCustomers` se crea con la migración `AddBlacklistedCustomer` y se siembra un cliente demo (`00000000-0000-0000-0000-000000000001`) en el arranque
+
+---
+
 ## EF Core Materialization
 
 Las Entities de este proyecto utilizan **private constructors** y **private setters** para permitir que EF Core materialice objetos desde la base de datos sin exponer setters públicos:
@@ -416,6 +459,7 @@ private Result ChangeStatus(TransactionStatus newStatus)
 - Controlar transiciones de estado through methods
 - Transaction es un ejemplo de Entity con identity, lifecycle y behavior
 - FraudRule es otro ejemplo con su propio comportamiento y validaciones
+- BlacklistedCustomer es una Entity simple (identidad por CustomerId) que alimenta la especificación dinámica de lista negra
 - Las transiciones de estado deben ser validadas
 - El estado final (Approved/Rejected) no debe cambiar
 - Private constructors + private setters para EF Core es una práctica estándar

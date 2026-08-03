@@ -244,7 +244,8 @@ public class AnalyzeTransactionHandlerTests
             Amount = 100,
             Currency = "USD"
         };
-        var handler = CreateHandler(WithBlacklistRejectionRule(blacklistedCustomerId));
+        var (provider, blacklistProvider) = WithBlacklistRejectionRule(blacklistedCustomerId);
+        var handler = CreateHandler(provider, blacklistProvider);
 
         // Act
         var result = await handler.Handle(command);
@@ -255,12 +256,18 @@ public class AnalyzeTransactionHandlerTests
     }
 
     private static AnalyzeTransactionHandler CreateHandler(
-        TestFraudRuleProvider provider)
+        TestFraudRuleProvider provider,
+        IBlacklistProvider? blacklistProvider = null)
     {
         var engine = new FraudRuleEngine();
         var repository = new StubTransactionRepository();
         var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<AnalyzeTransactionHandler>();
-        return new AnalyzeTransactionHandler(engine, provider, repository, logger);
+        return new AnalyzeTransactionHandler(
+            engine,
+            provider,
+            blacklistProvider ?? new StubBlacklistProvider(Array.Empty<CustomerId>()),
+            repository,
+            logger);
     }
 
     private static TestFraudRuleProvider WithNoMatchingRules()
@@ -282,16 +289,20 @@ public class AnalyzeTransactionHandlerTests
             });
     }
 
-    private static TestFraudRuleProvider WithBlacklistRejectionRule(Guid blacklistedCustomerId)
+    /// <summary>
+    /// Builds a provider with a Blacklist rule and a blacklist provider containing
+    /// the given customer. The Blacklist specification is supplied by the handler
+    /// from the blacklist provider — matching the production architecture.
+    /// </summary>
+    private static (TestFraudRuleProvider Provider, StubBlacklistProvider BlacklistProvider) WithBlacklistRejectionRule(
+        Guid blacklistedCustomerId)
     {
-        var blacklistedCustomer = CustomerId.From(blacklistedCustomerId);
         var rule = new FraudRule(FraudRuleId.New(), "Blacklist", 100, FraudRuleAction.Reject);
-        return new TestFraudRuleProvider(
+        var provider = new TestFraudRuleProvider(
             new[] { rule },
-            new Dictionary<string, ISpecification>
-            {
-                ["Blacklist"] = new BlacklistCustomerSpecification(new[] { blacklistedCustomer })
-            });
+            new Dictionary<string, ISpecification>());
+        var blacklistProvider = new StubBlacklistProvider(new[] { CustomerId.From(blacklistedCustomerId) });
+        return (provider, blacklistProvider);
     }
 
     private static TestFraudRuleProvider WithDisabledHighAmountRule(
@@ -341,5 +352,33 @@ public class AnalyzeTransactionHandlerTests
 
         public Task<int> GetTransactionCountSinceAsync(CustomerId customerId, DateTime since, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
+    }
+
+    /// <summary>
+    /// Stub implementation of IBlacklistProvider for unit tests.
+    /// Returns the seeded customers from memory.
+    /// </summary>
+    private sealed class StubBlacklistProvider : IBlacklistProvider
+    {
+        private readonly IReadOnlyCollection<BlacklistedCustomer> _customers;
+
+        public StubBlacklistProvider(IEnumerable<CustomerId> customerIds)
+        {
+            _customers = customerIds
+                .Select(id => new BlacklistedCustomer(id, "Test blacklist entry"))
+                .ToList();
+        }
+
+        public Task<bool> IsBlacklistedAsync(CustomerId customerId, CancellationToken cancellationToken = default)
+            => Task.FromResult(_customers.Any(c => c.CustomerId == customerId));
+
+        public Task<IReadOnlyCollection<BlacklistedCustomer>> GetAllAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_customers);
+
+        public Task AddAsync(BlacklistedCustomer customer, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<bool> RemoveAsync(CustomerId customerId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
     }
 }

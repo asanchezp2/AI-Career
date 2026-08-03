@@ -246,10 +246,19 @@ public class FraudRuleEngine
 **Flujo de uso en el Handler de Application:**
 
 ```csharp
-// AnalyzeTransactionHandler.Handle()
+// AnalyzeTransactionHandler.Handle() (resumido)
 var rules = _ruleProvider.GetAllRules();
 var specifications = _ruleProvider.GetSpecifications();
-var evaluation = _engine.Evaluate(transaction, rules, specifications);
+
+// La blacklist es dinámica: se carga por request y se superpone
+var blacklisted = await _blacklistProvider.GetAllAsync();
+var effectiveSpecifications = new Dictionary<string, ISpecification>(specifications)
+{
+    ["Blacklist"] = new BlacklistCustomerSpecification(
+        blacklisted.Select(b => b.CustomerId).ToList())
+};
+
+var evaluation = _engine.Evaluate(transaction, rules, effectiveSpecifications);
 
 // Aplicar el status recomendado usando behavior de la Entity
 transaction.Approve();  // o MarkForReview() / Reject()
@@ -286,17 +295,32 @@ Cada Specification se asocia a una `FraudRule` por nombre (`RuleName`) en el pro
 
 ```
 FraudRule("HighAmount", RiskScore=50, Action=Review)
-  → HighAmountTransactionSpecification(threshold: 10000)
+  → HighAmountTransactionSpecification(threshold: 10000)          ← threshold desde FraudRuleOptions (config)
 
 FraudRule("Velocity", RiskScore=70, Action=Reject)
-  → VelocityTransactionSpecification(maxTransactionCount: 5, timeWindow: 1h)
+  → VelocityTransactionSpecification(maxTransactionCount: 5, timeWindow: 1h)  ← desde FraudRuleOptions
 
 FraudRule("Blacklist", RiskScore=100, Action=Reject)
-  → BlacklistCustomerSpecification(blacklistedCustomers: {...})
+  → BlacklistCustomerSpecification(blacklistedCustomers: {...})   ← DINÁMICA (ver abajo)
 
 FraudRule("HighRiskCountry", RiskScore=30, Action=Review)
-  → HighRiskCountrySpecification(highRiskCountryCodes: {"IR", "KP", "SY", "VE"})
+  → HighRiskCountrySpecification(highRiskCountryCodes: {"IR", "KP", "SY", "VE"})  ← desde FraudRuleOptions
 ```
+
+**Blacklist dinámica (Phase 6/5):** la specification de Blacklist **ya no se crea en el provider**. El `AnalyzeTransactionHandler` carga la lista negra desde la base de datos (`IBlacklistProvider` / `DbBlacklistProvider`, tabla `BlacklistedCustomers`) en cada request y la superpone sobre el diccionario estático del provider:
+
+```csharp
+var blacklistedCustomers = await _blacklistProvider.GetAllAsync(cancellationToken);
+var effectiveSpecifications = new Dictionary<string, ISpecification>(specifications)
+{
+    ["Blacklist"] = new BlacklistCustomerSpecification(
+        blacklistedCustomers.Select(b => b.CustomerId).ToList())
+};
+```
+
+Esto mantiene la regla (el engine no cambia) pero con datos siempre frescos: un cliente agregado a la lista negra se rechaza inmediatamente, sin reiniciar la aplicación.
+
+**Umbrales configurables (Phase 6/5):** `DbFraudRuleProvider` recibe `IOptions<FraudRuleOptions>` y construye las specifications estáticas a partir de la sección `FraudRules` de appsettings.json (HighAmountThreshold, VelocityMaxTransactions, VelocityWindowMinutes, HighRiskCountries) — ningún número de negocio queda hardcodeado en el provider activo.
 
 **Composición de Specifications** (AND/OR/NOT) no está implementada. Si en el futuro se necesita combinar reglas, se pueden crear Specifications compuestas:
 

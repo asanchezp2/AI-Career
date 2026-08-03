@@ -6,6 +6,7 @@ using FraudDetection.Domain.Entities;
 using FraudDetection.Domain.Enums;
 using FraudDetection.Domain.Services;
 using FraudDetection.Domain.ValueObjects;
+using FraudDetection.Infrastructure.Configuration;
 using FraudDetection.Infrastructure.Persistence;
 using FraudDetection.Infrastructure.Persistence.Repositories;
 using FraudDetection.Infrastructure.Providers;
@@ -16,6 +17,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddProblemDetails();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
@@ -40,6 +42,10 @@ builder.Services.AddDbContext<FraudDetectionDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// Configuration — fraud rule parameters bound from the "FraudRules" section
+builder.Services.Configure<FraudRuleOptions>(
+    builder.Configuration.GetSection(FraudRuleOptions.SectionName));
+
 // Domain Services (stateless — safe as singleton)
 builder.Services.AddSingleton<FraudRuleEngine>();
 
@@ -49,6 +55,7 @@ builder.Services.AddScoped<AnalyzeTransactionValidator>();
 
 // Infrastructure — Persistence
 builder.Services.AddScoped<IFraudRuleProvider, DbFraudRuleProvider>();
+builder.Services.AddScoped<IBlacklistProvider, DbBlacklistProvider>();
 builder.Services.AddScoped<ITransactionRepository, EfTransactionRepository>();
 
 var app = builder.Build();
@@ -56,8 +63,19 @@ var app = builder.Build();
 // Global exception handling middleware — catches unhandled exceptions
 app.UseMiddleware<FraudDetection.Api.Middleware.ExceptionHandlingMiddleware>();
 
-// Auto-apply pending migrations and seed development data
-if (app.Environment.IsDevelopment())
+// Security headers — applied to all responses
+app.UseMiddleware<FraudDetection.Api.Middleware.SecurityHeadersMiddleware>();
+
+// HSTS — enforce HTTPS in non-development environments
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
+// Auto-apply pending migrations and seed data.
+// Runs in Development, or in any environment when AutoMigrate=true
+// (used by docker-compose so containers start with a ready schema).
+if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("AutoMigrate"))
 {
     using var scope = app.Services.CreateScope();
     var context = scope.ServiceProvider.GetRequiredService<FraudDetectionDbContext>();
@@ -72,6 +90,15 @@ if (app.Environment.IsDevelopment())
             new FraudRule(FraudRuleId.New(), "Blacklist", 100, FraudRuleAction.Reject),
             new FraudRule(FraudRuleId.New(), "HighRiskCountry", 30, FraudRuleAction.Review)
         );
+        context.SaveChanges();
+    }
+
+    // Seed a demo blacklisted customer if none exist
+    if (!context.BlacklistedCustomers.Any())
+    {
+        context.BlacklistedCustomers.Add(new BlacklistedCustomer(
+            CustomerId.From(Guid.Parse("00000000-0000-0000-0000-000000000001")),
+            "Demo blacklisted customer"));
         context.SaveChanges();
     }
 

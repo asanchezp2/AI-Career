@@ -1,5 +1,6 @@
 using FraudDetection.Application.Abstractions;
 using FraudDetection.Application.Features.Transactions.AnalyzeTransaction;
+using FraudDetection.Application.Features.Transactions.GetTransaction;
 using FraudDetection.Domain.ValueObjects;
 
 namespace FraudDetection.Api.Endpoints;
@@ -35,26 +36,29 @@ public static class AnalyzeTransactionEndpoint
         .WithDescription("Submits a transaction for fraud analysis.")
         .WithOpenApi();
 
-        app.MapGet("/api/v1/transactions/{id:guid}", async (Guid id, ITransactionRepository repository) =>
+        app.MapGet("/api/v1/transactions/{id:guid}", async (
+            Guid id,
+            ITransactionRepository repository,
+            CancellationToken ct) =>
         {
             var transactionId = TransactionId.From(id);
-            var transaction = await repository.GetByIdAsync(transactionId);
+            var transaction = await repository.GetByIdAsync(transactionId, ct);
             if (transaction is null)
                 return Results.NotFound();
 
-            return Results.Ok(new
-            {
-                id = transaction.Id.Value,
-                customerId = transaction.CustomerId.Value,
-                amount = transaction.Amount.Amount,
-                currency = transaction.Amount.Currency,
-                country = transaction.Country,
-                status = transaction.Status.ToString(),
-                createdAt = transaction.CreatedAt,
-                metadata = transaction.Metadata
-            });
+            var response = new GetTransactionResponse(
+                transaction.Id.Value,
+                transaction.CustomerId.Value,
+                transaction.Amount.Amount,
+                transaction.Amount.Currency,
+                transaction.Country,
+                transaction.Status.ToString(),
+                transaction.CreatedAt,
+                transaction.Metadata);
+            return Results.Ok(response);
         })
         .WithName("GetTransaction")
+        .Produces<GetTransactionResponse>(StatusCodes.Status200OK)
         .WithDescription("Retrieves a transaction by its unique identifier.")
         .WithOpenApi();
     }

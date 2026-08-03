@@ -146,6 +146,56 @@ public class FraudDetectionDbContextTests
     }
 
     [Fact]
+    public void DbContext_DatabaseCreated_HasBlacklistedCustomersTable()
+    {
+        using var context = CreateDbContext();
+
+        var entityType = context.Model.FindEntityType(typeof(BlacklistedCustomer));
+        Assert.NotNull(entityType);
+        Assert.Equal("BlacklistedCustomers", entityType.GetTableName());
+    }
+
+    [Fact]
+    public async Task SaveAndRetrieveBlacklistedCustomer_RoundtripsCorrectly()
+    {
+        using var context = CreateDbContext();
+
+        var blacklistedCustomer = new BlacklistedCustomer(
+            CustomerId.From(Guid.Parse("00000000-0000-0000-0000-000000000001")),
+            "Demo blacklisted customer");
+
+        context.BlacklistedCustomers.Add(blacklistedCustomer);
+        await context.SaveChangesAsync();
+
+        context.ChangeTracker.Clear();
+
+        var loaded = await context.BlacklistedCustomers
+            .FirstOrDefaultAsync(b => b.CustomerId == blacklistedCustomer.CustomerId);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(blacklistedCustomer.CustomerId, loaded!.CustomerId);
+        Assert.Equal("Demo blacklisted customer", loaded.Reason);
+        Assert.NotEqual(default, loaded.CreatedAt);
+    }
+
+    [Fact]
+    public async Task SaveAndRetrieveBlacklistedCustomer_MultipleCustomers_AreIndependent()
+    {
+        using var context = CreateDbContext();
+
+        var customerA = new BlacklistedCustomer(CustomerId.New(), "Fraud detected");
+        var customerB = new BlacklistedCustomer(CustomerId.New(), "Chargeback pattern");
+
+        context.BlacklistedCustomers.AddRange(customerA, customerB);
+        await context.SaveChangesAsync();
+
+        context.ChangeTracker.Clear();
+
+        var count = await context.BlacklistedCustomers.CountAsync();
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
     public async Task MoneyPrecision_RoundtripsCorrectly()
     {
         using var context = CreateDbContext();
