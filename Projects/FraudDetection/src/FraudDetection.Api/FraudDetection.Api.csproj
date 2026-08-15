@@ -8,7 +8,31 @@
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
+  <!--
+    Emit AssemblyMetadata("SourceRevisionId", <sha>) whenever SourceRevisionId is
+    set (auto-detected from git by MSBuild, or via -p:SourceRevisionId=<sha>), so
+    GET /api/v1/version can expose the build's commit hash (ADR-059).
+
+    The .NET SDK appends SourceRevisionId to the AssemblyInformationalVersion
+    attribute itself, but it does NOT emit the AssemblyMetadata attribute — the
+    metadata item must be declared here. This target makes the graceful
+    "commit" field in /api/v1/version actually work:
+      - builds inside the git work tree        -> commit = current SHA
+      - dotnet publish -p:SourceRevisionId=<sha> -> commit = <sha>
+      - Docker builds (no .git in the context,
+        no SourceRevisionId passed)            -> commit omitted from JSON
+  -->
+  <Target Name="EmitSourceRevisionIdMetadata"
+          BeforeTargets="GetAssemblyAttributes"
+          Condition="'$(SourceRevisionId)' != ''">
+    <ItemGroup>
+      <AssemblyMetadata Include="SourceRevisionId" Value="$(SourceRevisionId)" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
+    <PackageReference Include="AspNetCore.HealthChecks.Kafka" Version="9.0.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.SqlServer" Version="9.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.24" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

@@ -29,11 +29,19 @@ jobs:
       - name: Restore
         run: dotnet restore FraudDetection.sln
 
+      # The solution builds at zero warnings; -warnaserror turns that into a
+      # CI-enforced policy so a new warning fails the build instead of shipping.
       - name: Build
-        run: dotnet build FraudDetection.sln --no-restore -c Release
+        run: dotnet build FraudDetection.sln --nologo --no-restore -c Release -v q -warnaserror
 
       - name: Test
-        run: dotnet test FraudDetection.sln --no-build -c Release --logger trx --results-directory TestResults
+        run: dotnet test FraudDetection.sln --nologo --no-build -c Release --verbosity minimal --logger trx --results-directory TestResults
+
+      # Cheap syntax check of docker-compose.yml. We deliberately do NOT run
+      # `docker compose up` in CI: SQL Server + Kafka containers are far too
+      # heavy and flaky for a pull-request workflow.
+      - name: Validate docker-compose config
+        run: docker compose config --quiet
 
       - name: Upload test results
         uses: actions/upload-artifact@v4

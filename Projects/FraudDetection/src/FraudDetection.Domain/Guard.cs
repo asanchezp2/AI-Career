@@ -65,4 +65,22 @@ public static class Guard
         if (value < 0)
             throw new ArgumentOutOfRangeException(parameterName, value, $"{parameterName} cannot be negative.");
     }
+
+    /// <summary>
+    /// Guards against non-positive decimal values. Only strictly positive values are allowed.
+    /// </summary>
+    public static void AgainstNonPositive(decimal value, string parameterName)
+    {
+        if (value <= 0)
+            throw new ArgumentOutOfRangeException(parameterName, value, $"{parameterName} must be greater than zero.");
+    }
+
+    /// <summary>
+    /// Guards against enum values that are not defined by the enum type.
+    /// </summary>
+    public static void AgainstUndefinedEnum<T>(T value, string parameterName) where T : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+            throw new ArgumentOutOfRangeException(parameterName, value, $"{parameterName} must be a defined {typeof(T).Name} value.");
+    }
 }

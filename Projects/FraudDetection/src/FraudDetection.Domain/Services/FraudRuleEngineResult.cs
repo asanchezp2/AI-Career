@@ -1,38 +1,27 @@
-using FraudDetection.Domain.Enums;
 using FraudDetection.Domain.Entities;
+using FraudDetection.Domain.Enums;
 
 namespace FraudDetection.Domain.Services;
 
 /// <summary>
-/// Represents the result of evaluating a transaction against fraud rules.
+/// Represents the result of evaluating a transaction against the fraud rules.
+/// The decision model is binary: the transaction is either Approved or Rejected,
+/// and a rejection always carries the reason (which rule matched). There is no
+/// risk scoring — see ADR-056.
 /// </summary>
-public class FraudRuleEngineResult
+public sealed record FraudRuleEngineResult(
+    TransactionStatus RecommendedStatus,
+    RejectionReason? RejectionReason)
 {
     /// <summary>
-    /// The total accumulated risk score from all applicable rules.
+    /// Builds an approved result.
     /// </summary>
-    public int TotalRiskScore { get; }
+    public static FraudRuleEngineResult Approved() =>
+        new(TransactionStatus.Approved, null);
 
     /// <summary>
-    /// The recommended transaction status based on the evaluation.
+    /// Builds a rejected result with the rule that caused the rejection.
     /// </summary>
-    public TransactionStatus RecommendedStatus { get; }
-
-    /// <summary>
-    /// The list of fraud rules that were matched by the transaction.
-    /// </summary>
-    public IReadOnlyCollection<FraudRule> MatchedRules { get; }
-
-    /// <summary>
-    /// Creates a new FraudRuleEngineResult instance.
-    /// </summary>
-    public FraudRuleEngineResult(
-        int totalRiskScore,
-        TransactionStatus recommendedStatus,
-        IReadOnlyCollection<FraudRule> matchedRules)
-    {
-        TotalRiskScore = totalRiskScore;
-        RecommendedStatus = recommendedStatus;
-        MatchedRules = matchedRules;
-    }
+    public static FraudRuleEngineResult Rejected(RejectionReason reason) =>
+        new(TransactionStatus.Rejected, reason);
 }

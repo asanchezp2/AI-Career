@@ -4,6 +4,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FraudDetection.Infrastructure.Persistence;
 
+/// <summary>
+/// EF Core database context for the FraudDetection database.
+/// The real challenge model has a single aggregate: Transaction. The former
+/// FraudRules and BlacklistedCustomers tables were removed — the two fraud
+/// rules are fixed business constants in the Domain layer (see ADR-051).
+/// </summary>
 public sealed class FraudDetectionDbContext : DbContext
 {
     public FraudDetectionDbContext(DbContextOptions<FraudDetectionDbContext> options)
@@ -12,14 +18,10 @@ public sealed class FraudDetectionDbContext : DbContext
     }
 
     public DbSet<Transaction> Transactions => Set<Transaction>();
-    public DbSet<FraudRule> FraudRules => Set<FraudRule>();
-    public DbSet<BlacklistedCustomer> BlacklistedCustomers => Set<BlacklistedCustomer>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new TransactionConfiguration());
-        modelBuilder.ApplyConfiguration(new FraudRuleConfiguration());
-        modelBuilder.ApplyConfiguration(new BlacklistedCustomerConfiguration());
 
         base.OnModelCreating(modelBuilder);
     }

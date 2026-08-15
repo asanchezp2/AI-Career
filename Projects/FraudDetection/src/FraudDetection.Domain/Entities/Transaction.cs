@@ -1,10 +1,15 @@
 using FraudDetection.Domain.Enums;
-using FraudDetection.Domain.ValueObjects;
 
 namespace FraudDetection.Domain.Entities;
 
 /// <summary>
 /// Represents a financial transaction within the fraud detection system.
+///
+/// A transaction is created as <see cref="TransactionStatus.Pending"/> by the API and
+/// is later evaluated asynchronously (via Kafka) by the anti-fraud worker, which
+/// transitions it to <see cref="TransactionStatus.Approved"/> or
+/// <see cref="TransactionStatus.Rejected"/>. The transition rules are the only
+/// invariants this entity enforces — see <see cref="Approve"/> and <see cref="Reject"/>.
 /// </summary>
 public class Transaction
 {
@@ -13,42 +18,39 @@ public class Transaction
     /// </summary>
     private Transaction()
     {
-        Id = null!;
-        CustomerId = null!;
-        Amount = null!;
-        RecentTransactionCount = 0;
-        Metadata = new Dictionary<string, string>();
-        CreatedAt = DateTime.UtcNow;
     }
 
     /// <summary>
-    /// The unique identifier of this transaction.
+    /// The unique identifier of this transaction, as exposed by the API contract
+    /// (<c>transactionExternalId</c>). Server-generated at creation time — clients
+    /// never supply it.
     /// </summary>
-    public TransactionId Id { get; private set; }
+    public Guid TransactionExternalId { get; private set; }
 
     /// <summary>
-    /// The customer who initiated the transaction.
+    /// The account that funds the transaction (external system identifier).
     /// </summary>
-    public CustomerId CustomerId { get; private set; }
+    public Guid SourceAccountId { get; private set; }
 
     /// <summary>
-    /// The monetary amount of this transaction.
+    /// The account that receives the transaction (external system identifier).
     /// </summary>
-    public Money Amount { get; private set; }
+    public Guid TargetAccountId { get; private set; }
 
     /// <summary>
-    /// The ISO 3166-1 alpha-2 country code of the transaction origin.
-    /// Optional — may be null if the origin country is unknown.
+    /// The transfer type identifier, as supplied by the client (must be &gt; 0).
     /// </summary>
-    public string? Country { get; private set; }
+    public int TransferTypeId { get; private set; }
 
     /// <summary>
-    /// Optional key-value metadata attached to the transaction.
+    /// The monetary value of the transaction (must be &gt; 0).
     /// </summary>
-    public Dictionary<string, string> Metadata { get; private set; }
+    public decimal Value { get; private set; }
 
     /// <summary>
     /// The date and time when this transaction was created (UTC).
+    /// Server-generated at creation time; used as the day boundary for the
+    /// daily-accumulated fraud rule (see ADR-057).
     /// </summary>
     public DateTime CreatedAt { get; private set; }
 
@@ -58,103 +60,83 @@ public class Transaction
     public TransactionStatus Status { get; private set; }
 
     /// <summary>
-    /// Number of recent transactions by this customer.
-    /// Set by the application layer before fraud evaluation. Used for velocity rules.
+    /// Which fraud rule caused the rejection. Only set when
+    /// <see cref="Status"/> is <see cref="TransactionStatus.Rejected"/>;
+    /// null otherwise. Acts as the decision audit trail (see ADR-056).
     /// </summary>
-    public int RecentTransactionCount { get; set; }
+    public RejectionReason? RejectionReason { get; private set; }
 
     /// <summary>
     /// Creates a new Transaction instance with Pending status.
     /// </summary>
-    /// <param name="id">The unique transaction identifier.</param>
-    /// <param name="customerId">The customer initiating the transaction.</param>
-    /// <param name="amount">The monetary amount of the transaction.</param>
-    /// <param name="timestamp">The date and time when the transaction occurred (UTC).</param>
-    /// <param name="country">Optional ISO 3166-1 alpha-2 country code of the transaction origin.</param>
-    /// <param name="metadata">Optional key-value metadata attached to the transaction.</param>
-    /// <exception cref="ArgumentNullException">Thrown when any required parameter is null.</exception>
-    /// <exception cref="ArgumentException">Thrown when country is provided but is whitespace.</exception>
+    /// <param name="transactionExternalId">The unique transaction identifier (server-generated).</param>
+    /// <param name="sourceAccountId">The funding account identifier (cannot be Guid.Empty).</param>
+    /// <param name="targetAccountId">The receiving account identifier (cannot be Guid.Empty).</param>
+    /// <param name="transferTypeId">The transfer type identifier (must be &gt; 0).</param>
+    /// <param name="value">The transaction value (must be &gt; 0).</param>
+    /// <param name="createdAt">
+    /// Optional creation timestamp (UTC). Defaults to <see cref="DateTime.UtcNow"/> —
+    /// provided only as a testability hook; the client never supplies it.
+    /// </param>
+    /// <exception cref="ArgumentException">Thrown when an identifier is Guid.Empty.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when transferTypeId is not positive or value is not positive.</exception>
     public Transaction(
-        TransactionId id,
-        CustomerId customerId,
-        Money amount,
-        DateTime timestamp,
-        string? country = null,
-        Dictionary<string, string>? metadata = null)
+        Guid transactionExternalId,
+        Guid sourceAccountId,
+        Guid targetAccountId,
+        int transferTypeId,
+        decimal value,
+        DateTime? createdAt = null)
     {
-        Guard.AgainstNull(id, nameof(id));
-        Guard.AgainstNull(customerId, nameof(customerId));
-        Guard.AgainstNull(amount, nameof(amount));
+        Guard.AgainstEmptyGuid(transactionExternalId, nameof(transactionExternalId));
+        Guard.AgainstEmptyGuid(sourceAccountId, nameof(sourceAccountId));
+        Guard.AgainstEmptyGuid(targetAccountId, nameof(targetAccountId));
+        Guard.AgainstOutOfRange(transferTypeId, 1, int.MaxValue, nameof(transferTypeId));
+        Guard.AgainstNonPositive(value, nameof(value));
 
-        if (country is not null)
-            Guard.AgainstNullOrWhiteSpace(country, nameof(country));
-
-        Id = id;
-        CustomerId = customerId;
-        Amount = amount;
-        Country = country;
-        Metadata = metadata ?? new Dictionary<string, string>();
-        CreatedAt = timestamp;
+        TransactionExternalId = transactionExternalId;
+        SourceAccountId = sourceAccountId;
+        TargetAccountId = targetAccountId;
+        TransferTypeId = transferTypeId;
+        Value = value;
+        CreatedAt = createdAt ?? DateTime.UtcNow;
         Status = TransactionStatus.Pending;
+        RejectionReason = null;
     }
 
     /// <summary>
     /// Transitions the transaction to Approved status.
-    /// Only allowed when the transaction is Pending.
+    /// Only allowed when the transaction is Pending; any rejection reason is cleared.
     /// </summary>
     /// <returns>A Result indicating success or failure with an error message.</returns>
-    public Result Approve() => ChangeStatus(TransactionStatus.Approved);
-
-    /// <summary>
-    /// Transitions the transaction to Rejected status.
-    /// Only allowed when the transaction is Pending.
-    /// </summary>
-    /// <returns>A Result indicating success or failure with an error message.</returns>
-    public Result Reject() => ChangeStatus(TransactionStatus.Rejected);
-
-    /// <summary>
-    /// Transitions the transaction to UnderReview status.
-    /// Only allowed when the transaction is Pending.
-    /// </summary>
-    /// <returns>A Result indicating success or failure with an error message.</returns>
-    public Result MarkForReview() => ChangeStatus(TransactionStatus.UnderReview);
-
-    /// <summary>
-    /// Changes the transaction status if the current status is Pending.
-    /// </summary>
-    /// <param name="newStatus">The target status to transition to.</param>
-    /// <returns>A Result indicating success or failure with an error message.</returns>
-    private Result ChangeStatus(TransactionStatus newStatus)
+    public Result Approve()
     {
         if (Status != TransactionStatus.Pending)
             return Result.Failure(
                 $"Only transactions in Pending status can change state. Current status: {Status}.");
 
-        Status = newStatus;
+        Status = TransactionStatus.Approved;
+        RejectionReason = null;
         return Result.Success();
     }
 
     /// <summary>
-    /// Determines whether the specified object is equal to the current Transaction.
-    /// Two transactions are equal if and only if they have the same TransactionId.
+    /// Transitions the transaction to Rejected status.
+    /// Only allowed when the transaction is Pending, and a reason is mandatory —
+    /// a rejection without a documented cause would break the audit trail.
     /// </summary>
-    public override bool Equals(object? obj) =>
-        obj is Transaction other && Id.Equals(other.Id);
+    /// <param name="reason">The fraud rule that caused the rejection.</param>
+    /// <returns>A Result indicating success or failure with an error message.</returns>
+    public Result Reject(RejectionReason reason)
+    {
+        Guard.AgainstUndefinedEnum(reason, nameof(reason));
 
-    /// <summary>
-    /// Returns the hash code of this Transaction based on its TransactionId.
-    /// </summary>
-    public override int GetHashCode() => Id.GetHashCode();
+        if (Status != TransactionStatus.Pending)
+            return Result.Failure(
+                $"Only transactions in Pending status can change state. Current status: {Status}.");
 
-    /// <summary>
-    /// Determines whether two Transaction instances are equal.
-    /// </summary>
-    public static bool operator ==(Transaction? left, Transaction? right) =>
-        Equals(left, right);
-
-    /// <summary>
-    /// Determines whether two Transaction instances are not equal.
-    /// </summary>
-    public static bool operator !=(Transaction? left, Transaction? right) =>
-        !Equals(left, right);
+        Status = TransactionStatus.Rejected;
+        RejectionReason = reason;
+        return Result.Success();
+    }
 }

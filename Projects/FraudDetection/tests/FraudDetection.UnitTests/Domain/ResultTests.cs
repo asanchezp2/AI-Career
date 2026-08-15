@@ -4,8 +4,6 @@ namespace FraudDetection.UnitTests.Domain;
 
 public class ResultTests
 {
-    // Result (non-generic) -----------------------------------------------
-
     [Fact]
     public void Success_IsSuccessIsTrue()
     {
@@ -28,30 +26,5 @@ public class ResultTests
         Assert.False(result.IsSuccess);
         Assert.True(result.IsFailure);
         Assert.Equal("Something went wrong.", result.Error);
-    }
-
-    // Result<T> (generic) ------------------------------------------------
-
-    [Fact]
-    public void GenericSuccess_HasValue()
-    {
-        // Act
-        var result = Result<int>.Success(42);
-
-        // Assert
-        Assert.True(result.IsSuccess);
-        Assert.Equal(42, result.Value);
-    }
-
-    [Fact]
-    public void GenericFailure_ValueIsDefault()
-    {
-        // Act
-        var result = Result<int>.Failure("An error occurred.");
-
-        // Assert
-        Assert.True(result.IsFailure);
-        Assert.Equal(default, result.Value);
-        Assert.Equal("An error occurred.", result.Error);
     }
 }

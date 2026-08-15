@@ -15,21 +15,100 @@ services:
       retries: 10
       start_period: 30s
 
+  # Kafka broker in KRaft mode (single node, no ZooKeeper).
+  # - PLAINTEXT is the internal listener (containers talk via kafka:29092).
+  # - PLAINTEXT_HOST exposes localhost:9092 for host-side tools/CLIs.
+  # - AUTO_CREATE_TOPICS_ENABLE=true is a dev convenience: the transaction
+  #   topics are created on first produce. Production would manage topics
+  #   explicitly (see ADR-053).
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # API — creates transactions (Pending) and publishes TransactionCreated to Kafka.
+  # It never evaluates fraud synchronously: the anti-fraud worker does that.
   api:
     build:
       context: .
       dockerfile: Dockerfile
+      target: final-api
     environment:
       ASPNETCORE_ENVIRONMENT: "Production"
       ASPNETCORE_URLS: "http://+:8080"
-      # Applies pending migrations + seeds default fraud rules on startup
-      # (Program.cs runs auto-migration when Development OR AutoMigrate=true)
+      # Applies pending migrations on startup (Program.cs runs auto-migration
+      # when Development OR AutoMigrate=true). Dev/portfolio choice — ADR-054.
       AutoMigrate: "true"
       ConnectionStrings__DefaultConnection: "Server=sqlserver;Database=FraudDetectionDb;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Your_Strong_Passw0rd!};TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+      KAFKA__BOOTSTRAPSERVERS: "kafka:29092"
+      KAFKA__GROUPID: "fraud-detection-worker"
+      KAFKA__AUTOOFFSETRESET: "Earliest"
+      KAFKA__TOPICS__TRANSACTIONCREATED: "transaction-created"
+      KAFKA__TOPICS__TRANSACTIONEVALUATED: "transaction-evaluated"
     ports:
       - "8080:8080"
+    # Liveness probe only (/health/live — no dependencies): a Kafka or SQL
+    # Server outage must not make the API container look dead and trigger a
+    # restart cascade (ADR-059). /health/ready (SQL Server + Kafka checks)
+    # stays available for manual inspection; it is deliberately NOT wired to
+    # depends_on because a dependency blip would then block the worker.
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/health/live || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     depends_on:
       sqlserver:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  # Anti-fraud worker — consumes TransactionCreated from Kafka, evaluates the
+  # transaction (specifications over the shared DB), persists the new status,
+  # and publishes TransactionEvaluated. Starts after Kafka AND the API are
+  # healthy (the API runs the migrations that create the shared schema — the
+  # migration runs BEFORE the API starts listening, so the liveness probe
+  # becoming healthy already guarantees the schema exists; ADR-059).
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final-worker
+    environment:
+      DOTNET_ENVIRONMENT: "Production"
+      AutoMigrate: "true"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver;Database=FraudDetectionDb;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Your_Strong_Passw0rd!};TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+      KAFKA__BOOTSTRAPSERVERS: "kafka:29092"
+      KAFKA__GROUPID: "fraud-detection-worker"
+      KAFKA__AUTOOFFSETRESET: "Earliest"
+      KAFKA__TOPICS__TRANSACTIONCREATED: "transaction-created"
+      KAFKA__TOPICS__TRANSACTIONEVALUATED: "transaction-evaluated"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      api:
         condition: service_healthy
 
 volumes:

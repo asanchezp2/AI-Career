@@ -132,11 +132,22 @@ RuleFor(x => x.Currency)
     .WithMessage("Currency must be uppercase.");
 ```
 
+### Metadata
+
+El diccionario `Metadata` es opcional (nullable). Cuando se provee, está limitado por `MetadataLimitsOptions` (sección `MetadataLimits` en appsettings): `MaxEntries` (10), `MaxKeyLength` (50), `MaxValueLength` (200) y `MaxTotalBytes` (2048 bytes UTF-8). Exceder cualquier límite devuelve `400` (ver ADR-047).
+
+```csharp
+// Ejemplo: 12 entradas excede MaxEntries (10)
+RuleFor(x => x.Metadata)
+    .Must(metadata => metadata is null || metadata.Count <= options.MaxEntries)
+    .WithMessage($"Metadata must not contain more than {options.MaxEntries} entries.");
+```
+
 ---
 
 ## Tests de validación
 
-El validador `AnalyzeTransactionValidator` tiene **12 tests unitarios** en el proyecto `FraudDetection.UnitTests`.
+El validador `AnalyzeTransactionValidator` tiene **22 tests unitarios** en el proyecto `FraudDetection.UnitTests`.
 
 Los tests cubren:
 
@@ -144,18 +155,28 @@ Cada regla individual se testea con dos casos (válido e inválido):
 
 | Test | Verifica |
 |------|----------|
-| `EmptyTransactionId_ReturnsValidationError` | TransactionId requerido |
-| `ValidTransactionId_PassesValidation` | TransactionId válido |
-| `ZeroAmount_PassesValidation` | Amount >= 0 es válido (Domain es fuente de verdad) |
-| `ValidAmount_PassesValidation` | Amount válido |
-| `EmptyCurrency_ReturnsValidationError` | Currency requerido |
-| `InvalidCurrencyLength_ReturnsValidationError` | Currency debe tener 3 caracteres |
-| `LowercaseCurrency_ReturnsValidationError` | Currency debe estar en mayúsculas |
-| `ValidCurrency_PassesValidation` | Currency válido |
-| `EmptyTimestamp_ReturnsValidationError` | Timestamp requerido |
-| `ValidTimestamp_PassesValidation` | Timestamp válido |
-| `InvalidCountryCode_ReturnsValidationError` | Country debe ser ISO 3166-1 alpha-2 |
-| `ValidCommand_PassesAllValidations` | Comando completo válido |
+| `Valid_Command_PassesValidation` | Comando completo válido |
+| `Timestamp_Required_ReturnsValidationError` | Timestamp requerido |
+| `Empty_TransactionId_FailsValidation` | TransactionId requerido |
+| `Empty_CustomerId_FailsValidation` | CustomerId requerido |
+| `Amount_Zero_PassesValidation` | Amount >= 0 es válido (Domain es fuente de verdad) |
+| `Amount_Negative_FailsValidation` | Amount negativo inválido |
+| `Empty_Currency_FailsValidation` | Currency requerido |
+| `Currency_LengthLessThanThree_FailsValidation` | Currency debe tener 3 caracteres |
+| `Currency_LengthMoreThanThree_FailsValidation` | Currency no debe superar 3 caracteres |
+| `Currency_Lowercase_FailsValidation` | Currency debe estar en mayúsculas |
+| `Country_Null_PassesValidation` | Country opcional (null válido) |
+| `Country_EmptyString_PassesValidation` | Country vacío válido |
+| `Country_Lowercase_FailsValidation` | Country debe ser ISO 3166-1 alpha-2 |
+| `Country_ThreeCharacters_FailsValidation` | Country debe tener 2 letras |
+| `Country_ValidUppercase_PassesValidation` | Country válido |
+| `Metadata_Null_PassesValidation` | Metadata opcional (null válido) |
+| `Metadata_WithinLimits_PassesValidation` | Metadata dentro de límites |
+| `Metadata_TooManyEntries_FailsValidation` | Metadata respeta `MaxEntries` (ADR-047) |
+| `Metadata_KeyTooLong_FailsValidation` | Keys respetan `MaxKeyLength` |
+| `Metadata_ValueTooLong_FailsValidation` | Values respetan `MaxValueLength` |
+| `Metadata_TotalBytesExceeded_FailsValidation` | Metadata respeta `MaxTotalBytes` |
+| `Metadata_ExactlyAtLimits_PassesValidation` | Metadata en el límite exacto es válido |
 
 ```csharp
 [Fact]
@@ -226,7 +247,7 @@ Estos tests son **independientes**, **rápidos** y no requieren mocking porque F
 
 En nuestro proyecto:
 
-- `AnalyzeTransactionValidator` valida el input en Application Layer (12 tests de validación)
+- `AnalyzeTransactionValidator` valida el input en Application Layer (22 tests de validación)
 - `Transaction.ChangeStatus()` valida reglas de negocio en Domain Layer
 - La validación rechaza datos inválidos antes de llegar al Domain
 - Las reglas de negocio garantizan invariantes del dominio
@@ -297,5 +318,5 @@ transaction.Approve();  // Valida que esté Pending
 • Use `NotEmpty()` for required fields.
 • Use `Must()` for custom validation logic.
 • Use `GreaterThanOrEqualTo()` to align with Domain invariants.
-• Test every validation rule independently (12 tests for AnalyzeTransactionValidator).
+• Test every validation rule independently (22 tests for AnalyzeTransactionValidator).
 • Validation and Business Rules serve different purposes.

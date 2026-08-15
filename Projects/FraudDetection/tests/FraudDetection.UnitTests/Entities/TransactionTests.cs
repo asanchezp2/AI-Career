@@ -1,274 +1,187 @@
 using FraudDetection.Domain.Entities;
 using FraudDetection.Domain.Enums;
-using FraudDetection.Domain.ValueObjects;
 
-namespace FraudDetection.UnitTests.Entities;
+namespace FraudDetection.UnitTests.Domain.Entities;
 
 public class TransactionTests
 {
+    private static readonly Guid SourceAccountId = Guid.NewGuid();
+    private static readonly Guid TargetAccountId = Guid.NewGuid();
+    private static readonly DateTime FixedCreatedAt = new(2026, 1, 10, 8, 30, 0, DateTimeKind.Utc);
+
+    private static Transaction CreateTransaction(
+        decimal value = 100m,
+        int transferTypeId = 1,
+        Guid? id = null,
+        DateTime? createdAt = null) =>
+        new(
+            id ?? Guid.NewGuid(),
+            SourceAccountId,
+            TargetAccountId,
+            transferTypeId,
+            value,
+            createdAt);
+
+    // Construction --------------------------------------------------------
+
     [Fact]
-    public void Transaction_CreatedSuccessfully()
+    public void Constructor_WithPositiveValue_CreatesPendingTransaction()
     {
-        // Arrange
-        var transactionId = TransactionId.New();
-        var customerId = CustomerId.New();
-        var amount = new Money(100, "USD");
+        var transaction = CreateTransaction(value: 100m, createdAt: FixedCreatedAt);
 
-        // Act
-        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow);
-
-        // Assert
-        Assert.Equal(transactionId, transaction.Id);
-        Assert.Equal(customerId, transaction.CustomerId);
-        Assert.Equal(amount, transaction.Amount);
+        Assert.NotEqual(Guid.Empty, transaction.TransactionExternalId);
+        Assert.Equal(SourceAccountId, transaction.SourceAccountId);
+        Assert.Equal(TargetAccountId, transaction.TargetAccountId);
+        Assert.Equal(1, transaction.TransferTypeId);
+        Assert.Equal(100m, transaction.Value);
+        Assert.Equal(FixedCreatedAt, transaction.CreatedAt);
         Assert.Equal(TransactionStatus.Pending, transaction.Status);
-        Assert.NotEqual(default, transaction.CreatedAt);
+        Assert.Null(transaction.RejectionReason);
     }
 
     [Fact]
-    public void Transaction_NullId_Throws()
+    public void Constructor_WithoutCreatedAt_SetsUtcTimestamp()
     {
-        // Arrange
-        var customerId = CustomerId.New();
-        var amount = new Money(100, "USD");
+        var transaction = CreateTransaction();
 
-        // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new Transaction(null!, customerId, amount, DateTime.UtcNow));
+        Assert.Equal(DateTimeKind.Utc, transaction.CreatedAt.Kind);
+        Assert.NotEqual(default(DateTime), transaction.CreatedAt);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Constructor_NegativeOrZeroValue_ThrowsArgumentOutOfRangeException(decimal value)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateTransaction(value: value));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public void Constructor_NonPositiveTransferTypeId_ThrowsArgumentOutOfRangeException(int transferTypeId)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => CreateTransaction(transferTypeId: transferTypeId));
     }
 
     [Fact]
-    public void Transaction_NullCustomerId_Throws()
+    public void Constructor_EmptyTransactionExternalId_ThrowsArgumentException()
     {
-        // Arrange
-        var transactionId = TransactionId.New();
-        var amount = new Money(100, "USD");
-
-        // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new Transaction(transactionId, null!, amount, DateTime.UtcNow));
+        Assert.Throws<ArgumentException>(
+            () => CreateTransaction(id: Guid.Empty));
     }
 
     [Fact]
-    public void Transaction_NullMoney_Throws()
+    public void Constructor_EmptySourceAccountId_ThrowsArgumentException()
     {
-        // Arrange
-        var transactionId = TransactionId.New();
-        var customerId = CustomerId.New();
-
-        // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new Transaction(transactionId, customerId, null!, DateTime.UtcNow));
+        Assert.Throws<ArgumentException>(
+            () => new Transaction(
+                Guid.NewGuid(),
+                Guid.Empty,
+                TargetAccountId,
+                1,
+                100m));
     }
 
     [Fact]
-    public void Transaction_DifferentIds_AreDifferentEntities()
+    public void Constructor_EmptyTargetAccountId_ThrowsArgumentException()
     {
-        // Arrange
-        var customerId = CustomerId.New();
-        var amount = new Money(100, "USD");
-
-        var transaction1 = new Transaction(TransactionId.New(), customerId, amount, DateTime.UtcNow);
-        var transaction2 = new Transaction(TransactionId.New(), customerId, amount, DateTime.UtcNow);
-
-        // Act & Assert
-        Assert.NotEqual(transaction1, transaction2);
+        Assert.Throws<ArgumentException>(
+            () => new Transaction(
+                Guid.NewGuid(),
+                SourceAccountId,
+                Guid.Empty,
+                1,
+                100m));
     }
 
-    [Fact]
-    public void Pending_To_Approved()
-    {
-        // Arrange
-        var transaction = CreatePendingTransaction();
+    // State transitions ---------------------------------------------------
 
-        // Act
+    [Fact]
+    public void Approve_FromPending_ReturnsSuccess()
+    {
+        var transaction = CreateTransaction();
+
         var result = transaction.Approve();
 
-        // Assert
         Assert.True(result.IsSuccess);
+        Assert.Equal(TransactionStatus.Approved, transaction.Status);
+        Assert.Null(transaction.RejectionReason);
+    }
+
+    [Fact]
+    public void Reject_FromPendingWithReason_ReturnsSuccess()
+    {
+        var transaction = CreateTransaction();
+
+        var result = transaction.Reject(RejectionReason.HighValue);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TransactionStatus.Rejected, transaction.Status);
+        Assert.Equal(RejectionReason.HighValue, transaction.RejectionReason);
+    }
+
+    [Fact]
+    public void Reject_FromPendingWithUndefinedReason_ThrowsArgumentOutOfRangeException()
+    {
+        // RejectionReason is a mandatory, defined enum value — there is no way
+        // to reject without a documented reason, which keeps the audit trail
+        // intact (ADR-056). An undefined enum value is the closest invalid input.
+        var transaction = CreateTransaction();
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => transaction.Reject((RejectionReason)999));
+    }
+
+    [Fact]
+    public void Approve_WhenAlreadyApproved_ReturnsFailureAndKeepsStatus()
+    {
+        var transaction = CreateTransaction();
+        transaction.Approve();
+
+        var result = transaction.Approve();
+
+        Assert.True(result.IsFailure);
         Assert.Equal(TransactionStatus.Approved, transaction.Status);
     }
 
     [Fact]
-    public void Pending_To_Rejected()
+    public void Reject_WhenAlreadyApproved_ReturnsFailureAndKeepsStatus()
     {
-        // Arrange
-        var transaction = CreatePendingTransaction();
+        var transaction = CreateTransaction();
+        transaction.Approve();
 
-        // Act
-        var result = transaction.Reject();
+        var result = transaction.Reject(RejectionReason.HighValue);
 
-        // Assert
-        Assert.True(result.IsSuccess);
+        Assert.True(result.IsFailure);
+        Assert.Equal(TransactionStatus.Approved, transaction.Status);
+        Assert.Null(transaction.RejectionReason);
+    }
+
+    [Fact]
+    public void Approve_WhenAlreadyRejected_ReturnsFailureAndKeepsStatus()
+    {
+        var transaction = CreateTransaction();
+        transaction.Reject(RejectionReason.DailyAccumulated);
+
+        var result = transaction.Approve();
+
+        Assert.True(result.IsFailure);
         Assert.Equal(TransactionStatus.Rejected, transaction.Status);
+        Assert.Equal(RejectionReason.DailyAccumulated, transaction.RejectionReason);
     }
 
     [Fact]
-    public void Pending_To_UnderReview()
+    public void Reject_WhenAlreadyRejected_ReturnsFailureAndKeepsStatus()
     {
-        // Arrange
-        var transaction = CreatePendingTransaction();
+        var transaction = CreateTransaction();
+        transaction.Reject(RejectionReason.DailyAccumulated);
 
-        // Act
-        var result = transaction.MarkForReview();
+        var result = transaction.Reject(RejectionReason.HighValue);
 
-        // Assert
-        Assert.True(result.IsSuccess);
-        Assert.Equal(TransactionStatus.UnderReview, transaction.Status);
+        Assert.True(result.IsFailure);
+        Assert.Equal(TransactionStatus.Rejected, transaction.Status);
+        Assert.Equal(RejectionReason.DailyAccumulated, transaction.RejectionReason);
     }
-
-    [Fact]
-    public void Approved_CannotChangeAgain()
-    {
-        // Arrange
-        var transaction = CreatePendingTransaction();
-        var approveResult = transaction.Approve();
-        Assert.True(approveResult.IsSuccess);
-
-        // Act & Assert
-        var rejectResult = transaction.Reject();
-        Assert.True(rejectResult.IsFailure);
-        Assert.Contains("Approved", rejectResult.Error);
-
-        var reviewResult = transaction.MarkForReview();
-        Assert.True(reviewResult.IsFailure);
-        Assert.Contains("Approved", reviewResult.Error);
-    }
-
-    [Fact]
-    public void Rejected_CannotChangeAgain()
-    {
-        // Arrange
-        var transaction = CreatePendingTransaction();
-        var rejectResult = transaction.Reject();
-        Assert.True(rejectResult.IsSuccess);
-
-        // Act & Assert
-        var approveResult = transaction.Approve();
-        Assert.True(approveResult.IsFailure);
-        Assert.Contains("Rejected", approveResult.Error);
-
-        var reviewResult = transaction.MarkForReview();
-        Assert.True(reviewResult.IsFailure);
-        Assert.Contains("Rejected", reviewResult.Error);
-    }
-
-    [Fact]
-    public void UnderReview_CannotChangeAgain()
-    {
-        // Arrange
-        var transaction = CreatePendingTransaction();
-        var reviewResult = transaction.MarkForReview();
-        Assert.True(reviewResult.IsSuccess);
-
-        // Act & Assert
-        var approveResult = transaction.Approve();
-        Assert.True(approveResult.IsFailure);
-        Assert.Contains("UnderReview", approveResult.Error);
-
-        var rejectResult = transaction.Reject();
-        Assert.True(rejectResult.IsFailure);
-        Assert.Contains("UnderReview", rejectResult.Error);
-    }
-
-    [Fact]
-    public void Transaction_WithValidCountry_StoresCountry()
-    {
-        // Arrange
-        var transactionId = TransactionId.New();
-        var customerId = CustomerId.New();
-        var amount = new Money(100, "USD");
-
-        // Act
-        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow, country: "US");
-
-        // Assert
-        Assert.Equal("US", transaction.Country);
-    }
-
-    [Fact]
-    public void Transaction_WithNullCountry_Allowed()
-    {
-        // Arrange
-        var transactionId = TransactionId.New();
-        var customerId = CustomerId.New();
-        var amount = new Money(100, "USD");
-
-        // Act
-        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow, country: null);
-
-        // Assert
-        Assert.Null(transaction.Country);
-    }
-
-    [Fact]
-    public void Transaction_WithWhitespaceCountry_ThrowsArgumentException()
-    {
-        // Arrange
-        var transactionId = TransactionId.New();
-        var customerId = CustomerId.New();
-        var amount = new Money(100, "USD");
-
-        // Act & Assert
-        Assert.Throws<ArgumentException>(
-            () => new Transaction(transactionId, customerId, amount, DateTime.UtcNow, country: "   "));
-    }
-
-    [Fact]
-    public void Transaction_DefaultMetadata_IsEmpty()
-    {
-        // Arrange
-        var transactionId = TransactionId.New();
-        var customerId = CustomerId.New();
-        var amount = new Money(100, "USD");
-
-        // Act
-        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow);
-
-        // Assert
-        Assert.NotNull(transaction.Metadata);
-        Assert.Empty(transaction.Metadata);
-    }
-
-    [Fact]
-    public void Transaction_WithMetadata_StoresItems()
-    {
-        // Arrange
-        var transactionId = TransactionId.New();
-        var customerId = CustomerId.New();
-        var amount = new Money(100, "USD");
-        var metadata = new Dictionary<string, string>
-        {
-            ["source"] = "web",
-            ["channel"] = "mobile"
-        };
-
-        // Act
-        var transaction = new Transaction(transactionId, customerId, amount, DateTime.UtcNow, metadata: metadata);
-
-        // Assert
-        Assert.Equal(2, transaction.Metadata.Count);
-        Assert.Equal("web", transaction.Metadata["source"]);
-        Assert.Equal("mobile", transaction.Metadata["channel"]);
-    }
-
-    [Fact]
-    public void Transaction_Metadata_CanAddItemsAfterConstruction()
-    {
-        // Arrange
-        var transaction = new Transaction(
-            TransactionId.New(),
-            CustomerId.New(),
-            new Money(100, "USD"),
-            DateTime.UtcNow);
-
-        // Act
-        transaction.Metadata["ip_address"] = "192.168.1.1";
-        transaction.Metadata["user_agent"] = "Mozilla/5.0";
-
-        // Assert
-        Assert.Equal(2, transaction.Metadata.Count);
-        Assert.Equal("192.168.1.1", transaction.Metadata["ip_address"]);
-        Assert.Equal("Mozilla/5.0", transaction.Metadata["user_agent"]);
-    }
-
-    private static Transaction CreatePendingTransaction() =>
-        new(TransactionId.New(), CustomerId.New(), new Money(100, "USD"), DateTime.UtcNow);
 }

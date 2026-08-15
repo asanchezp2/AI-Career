@@ -22,114 +22,43 @@ namespace FraudDetection.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("FraudDetection.Domain.Entities.BlacklistedCustomer", b =>
-                {
-                    b.Property<Guid>("CustomerId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.HasKey("CustomerId");
-
-                    b.ToTable("BlacklistedCustomers", (string)null);
-                });
-
-            modelBuilder.Entity("FraudDetection.Domain.Entities.FraudRule", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
-                        .HasDefaultValue("Review");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("bit");
-
-                    b.Property<int>("RiskScore")
-                        .HasColumnType("int");
-
-                    b.Property<string>("RuleName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("FraudRules", (string)null);
-                });
-
             modelBuilder.Entity("FraudDetection.Domain.Entities.Transaction", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<Guid>("TransactionExternalId")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Country")
-                        .HasMaxLength(2)
-                        .HasColumnType("nvarchar(2)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<Guid>("CustomerId")
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("SourceAccountId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Metadata")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("RecentTransactionCount")
-                        .HasColumnType("int");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
-                    b.HasKey("Id");
+                    b.Property<Guid>("TargetAccountId")
+                        .HasColumnType("uniqueidentifier");
 
-                    b.HasIndex("CustomerId", "CreatedAt")
-                        .HasDatabaseName("IX_Transactions_CustomerId_CreatedAt");
+                    b.Property<int>("TransferTypeId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Value")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("TransactionExternalId");
+
+                    b.HasIndex("SourceAccountId", "CreatedAt")
+                        .HasDatabaseName("IX_Transactions_SourceAccountId_CreatedAt");
 
                     b.ToTable("Transactions", (string)null);
-                });
-
-            modelBuilder.Entity("FraudDetection.Domain.Entities.Transaction", b =>
-                {
-                    b.OwnsOne("FraudDetection.Domain.ValueObjects.Money", "Amount", b1 =>
-                        {
-                            b1.Property<Guid>("TransactionId")
-                                .HasColumnType("uniqueidentifier");
-
-                            b1.Property<decimal>("Amount")
-                                .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)")
-                                .HasColumnName("Amount");
-
-                            b1.Property<string>("Currency")
-                                .IsRequired()
-                                .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)")
-                                .HasColumnName("Currency");
-
-                            b1.HasKey("TransactionId");
-
-                            b1.ToTable("Transactions");
-
-                            b1.WithOwner()
-                                .HasForeignKey("TransactionId");
-                        });
-
-                    b.Navigation("Amount")
-                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FraudDetection.Domain.Entities;
 using FraudDetection.Infrastructure.Persistence.Converters;
 using Microsoft.EntityFrameworkCore;
@@ -12,50 +11,46 @@ public sealed class TransactionConfiguration : IEntityTypeConfiguration<Transact
     {
         builder.ToTable("Transactions");
 
-        builder.HasKey(t => t.Id);
+        builder.HasKey(t => t.TransactionExternalId);
 
-        builder.HasIndex(t => new { t.CustomerId, t.CreatedAt })
-            .HasDatabaseName("IX_Transactions_CustomerId_CreatedAt");
+        // Composite index on (SourceAccountId, CreatedAt) covering the daily
+        // accumulated query: equality on the source account + range scan on the
+        // UTC day window. Previously (CustomerId, CreatedAt) for the velocity
+        // rule — replaced by the real challenge's daily-accumulation rule
+        // (see ADR-051/ADR-057).
+        builder.HasIndex(t => new { t.SourceAccountId, t.CreatedAt })
+            .HasDatabaseName("IX_Transactions_SourceAccountId_CreatedAt");
 
-        builder.Property(t => t.Id)
-            .HasConversion<TransactionIdConverter>()
-            .ValueGeneratedNever();
+        builder.Property(t => t.TransactionExternalId)
+            .IsRequired();
 
-        builder.Property(t => t.CustomerId)
-            .HasConversion<CustomerIdConverter>()
+        builder.Property(t => t.SourceAccountId)
+            .IsRequired();
+
+        builder.Property(t => t.TargetAccountId)
+            .IsRequired();
+
+        builder.Property(t => t.TransferTypeId)
+            .IsRequired();
+
+        builder.Property(t => t.Value)
+            .HasPrecision(18, 2)
             .IsRequired();
 
         builder.Property(t => t.CreatedAt)
             .IsRequired();
 
+        // Status and rejection reason are stored as LOWERCASE strings so the
+        // database representation matches the JSON wire format
+        // ("pending"/"approved"/"rejected", "highvalue"/"dailyaccumulated").
         builder.Property(t => t.Status)
             .HasConversion<TransactionStatusConverter>()
             .HasMaxLength(20)
             .IsRequired();
 
-        builder.Property(t => t.Country)
-            .HasMaxLength(2)
+        builder.Property(t => t.RejectionReason)
+            .HasConversion<RejectionReasonConverter>()
+            .HasMaxLength(20)
             .IsRequired(false);
-
-        builder.Property(t => t.Metadata)
-            .HasConversion(
-                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null) ?? new())
-            .IsRequired(false);
-
-        builder.OwnsOne(t => t.Amount, money =>
-        {
-            money.Property(m => m.Amount)
-                .HasColumnName("Amount")
-                .HasPrecision(18, 2)
-                .IsRequired();
-
-            money.Property(m => m.Currency)
-                .HasColumnName("Currency")
-                .HasMaxLength(3)
-                .IsRequired();
-        });
-
-        builder.Navigation(t => t.Amount).IsRequired();
     }
 }

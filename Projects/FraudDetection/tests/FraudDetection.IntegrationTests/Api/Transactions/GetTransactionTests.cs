@@ -1,142 +1,102 @@
 using System.Net;
-using System.Net.Http.Json;
-using FraudDetection.Application.Features.Transactions.AnalyzeTransaction;
-using FraudDetection.Application.Features.Transactions.GetTransaction;
+using System.Text.Json;
+using FraudDetection.Domain.Entities;
+using FraudDetection.Domain.Enums;
 
 namespace FraudDetection.IntegrationTests.Api.Transactions;
 
-/// <summary>
-/// Integration tests for the GET /api/v1/transactions/{id} endpoint.
-/// Transactions are created through the analyze endpoint, then retrieved by id.
-/// </summary>
 public class GetTransactionTests : IClassFixture<CustomWebApplicationFactory>
 {
+    private static readonly DateTime FixedCreatedAt = new(2026, 1, 10, 9, 0, 0, DateTimeKind.Utc);
+
+    private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
     public GetTransactionTests(CustomWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
-    [Fact]
-    public async Task GetTransaction_ReturnsTransaction_WhenExists()
+    private async Task<Guid> InsertPendingRowAsync(decimal value = 100m)
     {
-        // Arrange — create a transaction via the analyze endpoint
-        var transactionId = Guid.NewGuid();
-        var customerId = Guid.NewGuid();
-        var amount = 250.50m;
-        var postResponse = await _client.PostAsJsonAsync("/api/v1/transactions/analyze", new AnalyzeTransactionCommand
-        {
-            TransactionId = transactionId,
-            CustomerId = customerId,
-            Amount = amount,
-            Currency = "USD",
-            Country = "US",
-            Timestamp = DateTime.UtcNow
-        });
-        Assert.Equal(HttpStatusCode.OK, postResponse.StatusCode);
+        using var db = _factory.CreateDbContext();
+        var transaction = new Transaction(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, value, FixedCreatedAt);
+        db.Transactions.Add(transaction);
+        await db.SaveChangesAsync();
+        return transaction.TransactionExternalId;
+    }
 
-        // Act
-        var getResponse = await _client.GetAsync($"/api/v1/transactions/{transactionId}");
-
-        // Assert
-        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
-
-        var result = await getResponse.Content.ReadFromJsonAsync<GetTransactionResponse>();
-        Assert.NotNull(result);
-        Assert.Equal(transactionId, result!.TransactionId);
-        Assert.Equal(customerId, result.CustomerId);
-        Assert.Equal(amount, result.Amount);
-        Assert.Equal("USD", result.Currency);
-        Assert.Equal("US", result.Country);
-        Assert.Equal("Approved", result.Status);
-        Assert.True(result.CreatedAt > DateTime.UtcNow.AddMinutes(-5),
-            $"CreatedAt {result.CreatedAt} should be recent");
-        Assert.NotNull(result.Metadata);
+    private static async Task<JsonElement> ReadBodyAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(body);
+        return document.RootElement.Clone();
     }
 
     [Fact]
-    public async Task GetTransaction_ReturnsNotFound_WhenMissing()
+    public async Task Get_ExistingTransaction_Returns200WithExpectedShape()
     {
-        // Arrange — a random GUID that was never created
+        var id = await InsertPendingRowAsync(value: 120m);
+
+        var response = await _client.GetAsync($"/api/v1/transactions/{id}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await ReadBodyAsync(response);
+        Assert.Equal(id, body.GetProperty("transactionExternalId").GetGuid());
+        Assert.Equal(FixedCreatedAt, body.GetProperty("createdAt").GetDateTime());
+        Assert.Equal("pending", body.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("rejectionReason").ValueKind);
+    }
+
+    [Fact]
+    public async Task Get_MissingTransaction_Returns404ProblemDetails()
+    {
         var missingId = Guid.NewGuid();
 
-        // Act
         var response = await _client.GetAsync($"/api/v1/transactions/{missingId}");
 
-        // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains("application/problem+json", response.Content.Headers.ContentType!.ToString());
+
+        var body = await ReadBodyAsync(response);
+        Assert.Equal(404, body.GetProperty("status").GetInt32());
+        Assert.Equal(missingId, body.GetProperty("transactionExternalId").GetGuid());
+        Assert.Contains("not found", body.GetProperty("title").GetString()!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task GetTransaction_Returns404_WhenInvalidId()
+    public async Task Get_InvalidGuid_Returns404()
     {
-        // Act — "not-a-guid" does not match the {id:guid} route constraint
+        // The {id:guid} route constraint rejects non-GUID segments, so no route
+        // matches and the framework returns 404.
         var response = await _client.GetAsync("/api/v1/transactions/not-a-guid");
 
-        // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
-    public async Task GetTransaction_ReturnsMetadata_WhenTransactionHasMetadata()
+    public async Task Get_ReflectsStatusUpdatePersistedByEvaluation()
     {
-        // Arrange — create a transaction with metadata
-        var transactionId = Guid.NewGuid();
-        var metadata = new Dictionary<string, string>
+        var id = await InsertPendingRowAsync();
+
+        var pendingResponse = await _client.GetAsync($"/api/v1/transactions/{id}");
+        Assert.Equal("pending", (await ReadBodyAsync(pendingResponse)).GetProperty("status").GetString());
+
+        // Simulate the anti-fraud worker: load the row and apply the Approved
+        // transition (the same domain behavior the evaluation handler uses).
+        using (var db = _factory.CreateDbContext())
         {
-            ["device"] = "mobile",
-            ["channel"] = "web"
-        };
-        var postResponse = await _client.PostAsJsonAsync("/api/v1/transactions/analyze", new AnalyzeTransactionCommand
-        {
-            TransactionId = transactionId,
-            CustomerId = Guid.NewGuid(),
-            Amount = 100,
-            Currency = "USD",
-            Timestamp = DateTime.UtcNow,
-            Metadata = metadata
-        });
-        Assert.Equal(HttpStatusCode.OK, postResponse.StatusCode);
+            var row = await db.Transactions.FindAsync(id);
+            Assert.True(row!.Approve().IsSuccess);
+            await db.SaveChangesAsync();
+        }
 
-        // Act
-        var getResponse = await _client.GetAsync($"/api/v1/transactions/{transactionId}");
-
-        // Assert — metadata round-trips through persistence and JSON serialization
-        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
-
-        var result = await getResponse.Content.ReadFromJsonAsync<GetTransactionResponse>();
-        Assert.NotNull(result);
-        Assert.NotNull(result!.Metadata);
-        Assert.Equal(2, result.Metadata.Count);
-        Assert.Equal("mobile", result.Metadata["device"]);
-        Assert.Equal("web", result.Metadata["channel"]);
-    }
-
-    [Fact]
-    public async Task GetTransaction_IncludesCountry_WhenProvided()
-    {
-        // Arrange — create a transaction with a country
-        var transactionId = Guid.NewGuid();
-        var postResponse = await _client.PostAsJsonAsync("/api/v1/transactions/analyze", new AnalyzeTransactionCommand
-        {
-            TransactionId = transactionId,
-            CustomerId = Guid.NewGuid(),
-            Amount = 100,
-            Currency = "USD",
-            Country = "US",
-            Timestamp = DateTime.UtcNow
-        });
-        Assert.Equal(HttpStatusCode.OK, postResponse.StatusCode);
-
-        // Act
-        var getResponse = await _client.GetAsync($"/api/v1/transactions/{transactionId}");
-
-        // Assert
-        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
-
-        var result = await getResponse.Content.ReadFromJsonAsync<GetTransactionResponse>();
-        Assert.NotNull(result);
-        Assert.Equal("US", result!.Country);
+        var approvedResponse = await _client.GetAsync($"/api/v1/transactions/{id}");
+        Assert.Equal(HttpStatusCode.OK, approvedResponse.StatusCode);
+        var body = await ReadBodyAsync(approvedResponse);
+        Assert.Equal("approved", body.GetProperty("status").GetString());
     }
 }

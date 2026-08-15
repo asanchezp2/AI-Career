@@ -69,4 +69,27 @@ public class ExceptionHandlingMiddlewareTests
         // Assert — middleware passes through without modification
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
     }
+
+    [Fact]
+    public async Task InvokeAsync_ClientAbortsRequest_RethrowsWithoutWritingResponse()
+    {
+        // Arrange — the request is aborted by the client before a response is produced
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        context.RequestAborted = cts.Token;
+
+        RequestDelegate abortingNext = _ => throw new OperationCanceledException(cts.Token);
+        var middleware = new ExceptionHandlingMiddleware(
+            abortingNext,
+            NullLogger<ExceptionHandlingMiddleware>.Instance);
+
+        // Act — a client abort must propagate instead of becoming a 500
+        await Assert.ThrowsAsync<OperationCanceledException>(() => middleware.InvokeAsync(context));
+
+        // Assert — no response was attempted on the dead connection
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        Assert.Equal(0, context.Response.Body.Length);
+    }
 }

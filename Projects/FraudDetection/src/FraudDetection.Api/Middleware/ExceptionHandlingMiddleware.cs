@@ -32,6 +32,16 @@ public class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
+        catch (Exception ex) when (ex is OperationCanceledException && context.RequestAborted.IsCancellationRequested)
+        {
+            // The client aborted the request (timeout, disconnect, stop) before a
+            // response was produced. There is no connection left to write a 500 to,
+            // so rethrow and let the server treat this as a normal abort instead of
+            // logging an error and writing to a dead connection. Only re-throws when
+            // the abort actually came from the client — genuine errors still fall
+            // through to the 500 path below.
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An unhandled exception occurred processing {Method} {Path}",

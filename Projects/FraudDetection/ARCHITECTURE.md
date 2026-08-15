@@ -1,13 +1,17 @@
 # Fraud Detection API — Architecture
 
+> This document describes the architecture of the PRODUCTION REWORK implementing the real technical challenge
+> (see DECISIONS.md ADR-051). The system validates every created financial transaction **asynchronously**:
+> API → Kafka → anti-fraud Worker → database/API.
+
 ## Why Hexagonal Architecture
 
 Hexagonal Architecture (Ports & Adapters) provides:
 
 | Benefit | Description |
 |---------|-------------|
-| Testability | Business logic can be tested without HTTP, DB, or external systems |
-| Replaceability | Adapters can be swapped (e.g., InMemory → Db provider) |
+| Testability | Business logic can be tested without HTTP, Kafka, or DB |
+| Replaceability | Adapters can be swapped (e.g., Kafka publisher → in-memory, EF Core → other store) |
 | Evolution | New adapters added without changing core logic |
 | Simplicity | Clear separation between "what" (Domain) and "how" (Adapters) |
 
@@ -21,16 +25,20 @@ Vertical Slice organizes code by use case, not by technical layer:
 | Isolation | Changes to one slice don't affect others |
 | Clarity | Easy to understand the flow of a specific feature |
 
+The system has exactly three slices: **CreateTransaction** (API side), **EvaluateTransaction** (worker side), and **GetTransaction** (query side).
+
 ## Why Explicit CQRS
 
 CQRS is implemented **explicitly** — no MediatR, no `IRequest<T>`:
 
 | Benefit | Description |
 |---------|-------------|
-| Simplicity | No framework overhead for a single use case |
+| Simplicity | No framework overhead for three use cases |
 | Visibility | Dependency graph is visible in the Handler constructor |
 | Debuggability | No mediator indirection — call chain is linear |
 | Control | No assembly scanning, no pipeline behaviors to configure |
+
+This is an own architectural decision, retained although the challenge client does not require it (ADR-052).
 
 ## Dependency Direction
 
@@ -39,23 +47,28 @@ Api ──→ Application ──→ Domain
  │                       │
  └──→ Infrastructure ───┘
       (implements ports)
+
+Worker ──→ Application ──→ Domain
+   │            │
+   └──→ Infrastructure
 ```
 
 **Rules:**
 - Dependencies always point **inward** toward Domain
-- **Domain** has zero dependencies — not on ASP.NET, EF Core, or any external library
+- **Domain** has zero dependencies — not on ASP.NET, EF Core, Kafka, or any external library
 - **Application** depends only on Domain (and FluentValidation — a library, not framework)
 - **Infrastructure** depends on Application + Domain
-- **Api** depends on everything (composition root)
+- **Api** and **Worker** depend on everything (each is a composition root)
 
 ## Projects
 
 | Project | Responsibility |
 |---------|----------------|
-| **Domain** | Business rules, entities, value objects, specifications, domain services |
-| **Application** | Use cases, CQRS commands/handlers, ports (interfaces), FluentValidation |
-| **Infrastructure** | Adapter implementations: EF Core DbContext, providers, value converters, entity configs |
-| **Api** | HTTP adapter (Minimal API), DI composition root, Swagger |
+| **Domain** | `Transaction` entity, `TransactionStatus`/`RejectionReason` enums, 2 specifications, `FraudRuleEngine`, Guard/Result patterns |
+| **Application** | Use cases (Create/Evaluate/Get), ports (`ITransactionRepository`, `IEventPublisher`), integration events, validators |
+| **Infrastructure** | Adapters: EF Core DbContext/repository, Kafka producer (`KafkaEventPublisher`), `KafkaOptions` |
+| **Worker** (new) | Anti-fraud microservice: Kafka consumer `BackgroundService` + its own composition root |
+| **Api** | HTTP adapter (Minimal API), DI composition root, middleware, Swagger |
 
 ## Real Folder Structure
 
@@ -64,81 +77,77 @@ FraudDetection/
 ├── src/
 │   ├── FraudDetection.Api/
 │   │   ├── Endpoints/
-│   │   │   └── AnalyzeTransactionEndpoint.cs
+│   │   │   └── TransactionsEndpoint.cs          # POST /api/v1/transactions + GET /{id}
 │   │   ├── Middleware/
-│   │   │   ├── ExceptionHandlingMiddleware.cs
-│   │   │   └── SecurityHeadersMiddleware.cs
-│   │   ├── Program.cs
+│   │   │   ├── ExceptionHandlingMiddleware.cs   # RFC 7807 ProblemDetails
+│   │   │   └── SecurityHeadersMiddleware.cs     # Security headers + HSTS
+│   │   ├── Program.cs                           # Composition root (producer side)
+│   │   └── appsettings.json
+│   │
+│   ├── FraudDetection.Worker/                   # ← NEW anti-fraud microservice
+│   │   ├── Workers/
+│   │   │   └── TransactionEvaluationWorker.cs   # Kafka consumer (BackgroundService)
+│   │   ├── Program.cs                           # Composition root (evaluation side)
 │   │   └── appsettings.json
 │   │
 │   ├── FraudDetection.Application/
 │   │   ├── Abstractions/
-│   │   │   ├── IFraudRuleProvider.cs
-│   │   │   ├── IBlacklistProvider.cs
-│   │   │   └── ITransactionRepository.cs
+│   │   │   ├── ITransactionRepository.cs        # Add/GetById/GetDailyAccumulated/Update
+│   │   │   └── IEventPublisher.cs               # Publish TransactionCreated/Evaluated
+│   │   ├── Events/
+│   │   │   ├── TransactionCreatedEvent.cs
+│   │   │   └── TransactionEvaluatedEvent.cs
+│   │   ├── Configuration/
+│   │   │   ├── RateLimitOptions.cs
+│   │   │   └── RateLimitOptionsValidator.cs
+│   │   ├── Exceptions/
+│   │   │   └── TransactionConflictException.cs  # Defensive duplicate-key signal
 │   │   └── Features/
 │   │       └── Transactions/
-│   │           ├── AnalyzeTransaction/
-│   │           │   ├── AnalyzeTransactionCommand.cs
-│   │           │   ├── AnalyzeTransactionValidator.cs
-│   │           │   ├── AnalyzeTransactionHandler.cs
-│   │           │   └── AnalyzeTransactionResult.cs
-│   │           └── GetTransaction/
-│   │               └── GetTransactionResponse.cs
+│   │           ├── CreateTransaction/           # Command, Validator, Handler, Result
+│   │           ├── EvaluateTransaction/         # Command, Handler, Result (worker side)
+│   │           └── GetTransaction/              # GetTransactionResponse
 │   │
-│   ├── FraudDetection.Domain/
+│   ├── FraudDetection.Domain/                   # Pure domain logic
 │   │   ├── Entities/
-│   │   │   ├── Transaction.cs
-│   │   │   ├── FraudRule.cs
-│   │   │   └── BlacklistedCustomer.cs
+│   │   │   └── Transaction.cs                   # Approve()/Reject(reason) invariants
 │   │   ├── Enums/
-│   │   │   ├── TransactionStatus.cs
-│   │   │   └── FraudRuleAction.cs
+│   │   │   ├── TransactionStatus.cs             # Pending | Approved | Rejected (only 3)
+│   │   │   └── RejectionReason.cs               # HighValue | DailyAccumulated
+│   │   ├── Guard.cs                             # Centralized precondition checks
+│   │   ├── Result.cs                            # Result pattern (non-generic)
 │   │   ├── Services/
-│   │   │   ├── FraudRuleEngine.cs
+│   │   │   ├── FraudRuleEngine.cs               # Deterministic 2-rule evaluation
 │   │   │   └── FraudRuleEngineResult.cs
-│   │   ├── Specifications/
-│   │   │   ├── ISpecification.cs
-│   │   │   └── Transactions/
-│   │   │       ├── BlacklistCustomerSpecification.cs
-│   │   │       ├── HighAmountTransactionSpecification.cs
-│   │   │       ├── HighRiskCountrySpecification.cs
-│   │   │       └── VelocityTransactionSpecification.cs
-│   │   └── ValueObjects/
-│   │       ├── Money.cs
-│   │       ├── TransactionId.cs
-│   │       ├── CustomerId.cs
-│   │       └── FraudRuleId.cs
+│   │   └── Specifications/
+│   │       ├── ISpecification.cs
+│   │       └── Transactions/
+│   │           ├── HighValueSpecification.cs
+│   │           └── DailyAccumulatedSpecification.cs
 │   │
 │   └── FraudDetection.Infrastructure/
 │       ├── Configuration/
-│       │   └── FraudRuleOptions.cs
-│       ├── Persistence/
-│       │   ├── Configurations/
-│       │   │   ├── TransactionConfiguration.cs
-│       │   │   ├── FraudRuleConfiguration.cs
-│       │   │   └── BlacklistedCustomerConfiguration.cs
-│       │   ├── Converters/
-│       │   │   ├── TransactionIdConverter.cs
-│       │   │   ├── CustomerIdConverter.cs
-│       │   │   ├── FraudRuleIdConverter.cs
-│       │   │   └── TransactionStatusConverter.cs
-│       │   ├── Migrations/
-│       │   │   ├── 20260730151852_InitialCreate.cs
-│       │   │   ├── 20260730183216_AddActionCountryMetadata.cs
-│       │   │   ├── 20260730192656_AddCustomerIdCreatedAtIndex.cs
-│       │   │   └── 20260803232420_AddBlacklistedCustomer.cs
-│       │   ├── Repositories/
-│       │   │   └── EfTransactionRepository.cs
-│       │   └── FraudDetectionDbContext.cs
-│       └── Providers/
-│           ├── InMemoryFraudRuleProvider.cs
-│           ├── DbFraudRuleProvider.cs
-│           └── DbBlacklistProvider.cs
+│       │   ├── KafkaOptions.cs                  # Kafka: section + KafkaOptionsValidator
+│       │   └── KafkaOptionsValidator.cs
+│       ├── Messaging/
+│       │   ├── KafkaEventPublisher.cs           # Confluent.Kafka producer (IEventPublisher)
+│       │   └── KafkaJsonSerializerOptions.cs    # Shared camelCase/lowercase-enum JSON
+│       └── Persistence/
+│           ├── Configurations/
+│           │   └── TransactionConfiguration.cs
+│           ├── Converters/
+│           │   ├── TransactionStatusConverter.cs    # → lowercase string
+│           │   └── RejectionReasonConverter.cs      # → lowercase string
+│           ├── Migrations/
+│           │   └── 20260813020511_InitialCreate.cs  # ← single fresh migration
+│           ├── Repositories/
+│           │   └── EfTransactionRepository.cs
+│           ├── DesignTimeDbContextFactory.cs    # dotnet ef without booting the host
+│           └── FraudDetectionDbContext.cs
 │
 └── tests/
-    ├── FraudDetection.UnitTests/          (165 tests)
-    └── FraudDetection.IntegrationTests/   (44 tests)
+    ├── FraudDetection.UnitTests/               # Domain + Application tests (unit — 99 tests)
+    └── FraudDetection.IntegrationTests/        # API + persistence tests (SQLite file-based — 38 tests)
 ```
 
 ## Ports and Adapters
@@ -147,9 +156,12 @@ FraudDetection/
 
 | Port | Purpose | Adapter |
 |------|---------|---------|
-| `POST /api/v1/transactions/analyze` | Analyze a transaction | `AnalyzeTransactionEndpoint` (Minimal API) |
-| `GET /api/v1/transactions/{id}` | Retrieve a persisted transaction | `AnalyzeTransactionEndpoint` (Minimal API) |
-| `GET /health` | Liveness/health check | Inline Minimal API delegate in Program.cs |
+| `POST /api/v1/transactions` | Create a transaction (201 + pending) | `TransactionsEndpoint` (Minimal API) |
+| `GET /api/v1/transactions/{id}` | Query transaction state (200/404) | `TransactionsEndpoint` (Minimal API) |
+| `GET /health/ready` | Readiness — SQL Server + Kafka via HealthChecks (200/503, per-dependency JSON detail) | `MapHealthChecks` + custom ResponseWriter, ADR-059 |
+| `GET /health/live` | Liveness — no dependencies (predicate selects no checks), always 200 | `MapHealthChecks` (Predicate `_ => false`), ADR-059 |
+| `GET /health` | Alias of `/health/ready` — backwards compatibility | `MapHealthChecks` (same options object) |
+| `GET /api/v1/version` | Build version metadata (`version`, `informationalVersion`, `environment`, optional `commit`) | `VersionEndpoint` (Minimal API, composition root only) |
 
 There are no interface-based primary ports — the Minimal API delegate invokes the Handler directly. In hexagonal terms, the HTTP endpoint IS the inbound adapter.
 
@@ -157,21 +169,62 @@ There are no interface-based primary ports — the Minimal API delegate invokes 
 
 | Port | Purpose | Implementations |
 |------|---------|-----------------|
-| `IFraudRuleProvider` | Provides fraud rules and specification mappings | `DbFraudRuleProvider` (active — reads rules from DB, thresholds from `FraudRuleOptions`), `InMemoryFraudRuleProvider` (testing fallback) |
-| `IBlacklistProvider` | Provides blacklisted customer data | `DbBlacklistProvider` (active — reads from the `BlacklistedCustomers` table) |
-| `ITransactionRepository` | Persists transactions and provides history queries | `EfTransactionRepository` |
-
-Transactions are created, evaluated, and then persisted to the database. The blacklist is reloaded on every analysis request so recently added/removed customers are honored immediately.
+| `ITransactionRepository` | Persists transactions; reads by ID; computes the day's accumulated value; persists status transitions | `EfTransactionRepository` (SQL Server; duplicate-key translation; `AsNoTracking` reads) |
+| `IEventPublisher` | Publishes integration events to Kafka | `KafkaEventPublisher` (Confluent.Kafka producer, JSON, keyed by transaction ID) |
 
 ### Port Location
 
 ```
-Application/Abstractions/IFraudRuleProvider.cs
-Application/Abstractions/IBlacklistProvider.cs
 Application/Abstractions/ITransactionRepository.cs
+Application/Abstractions/IEventPublisher.cs
 ```
 
-Ports are defined in the **Application Layer** because they represent capabilities the application needs from the outside world. The Domain defines business rules; the Application defines what it needs from infrastructure.
+Ports are defined in the **Application Layer** because they represent capabilities the application needs from the outside world. The Domain defines business rules; the Application defines what it needs from infrastructure. Kafka is fully hidden behind `IEventPublisher` (ADR-053).
+
+## The Async Flow (Api → Kafka → Worker → DB)
+
+```
+┌──────────┐   POST /api/v1/transactions   ┌────────────────────────────────┐
+│  Client  │ ────────────────────────────▶ │  FraudDetection.Api             │
+└──────────┘ ◀──────────────────────────── │  CreateTransactionHandler       │
+      201 { transactionExternalId,         │  1. new Transaction(...pending) │
+            createdAt, status: "pending" } │  2. repository.AddAsync         │
+                                           │  3. publish TransactionCreated  │
+                                           └──────────────┬─────────────────┘
+                                                          │ Kafka
+                                                          ▼
+                                            topic "transaction-created"
+                                                          │
+                                                          ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  FraudDetection.Worker (anti-fraud microservice)                             │
+│  TransactionEvaluationWorker (BackgroundService)                             │
+│    consume → EvaluateTransactionHandler:                                      │
+│      1. repository.GetByIdAsync(id)                                           │
+│      2. repository.GetDailyAccumulatedAsync(sourceAccountId, day)             │
+│         (includes this transaction — it is already persisted as Pending)      │
+│      3. FraudRuleEngine.Evaluate(tx, accumulated)                             │
+│         HighValue (>2000)?        → Rejected(HighValue)                       │
+│         DailyAccumulated (>20000)?→ Rejected(DailyAccumulated)                │
+│         else                      → Approved                                  │
+│      4. tx.Approve() / tx.Reject(reason)   ← domain invariants                │
+│      5. repository.UpdateAsync(tx)                                            │
+│      6. publish TransactionEvaluated → topic "transaction-evaluated"          │
+│      7. consumer.Commit(offset)          ← at-least-once (ADR-058)            │
+└───────┬──────────────────────────────────────────────────────────────────────┘
+        │ SQL Server (shared DB — pragmatic choice, ADR-054)
+        ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  FraudDetection.Api — GET /api/v1/transactions/{id}                          │
+│  reads the CURRENT state: { transactionExternalId, createdAt, status,        │
+│  rejectionReason? }  — 400/404/429 RFC 7807 ProblemDetails everywhere        │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key design points:**
+- The create endpoint NEVER evaluates fraud — the challenge mandates async messaging with no synchronous evaluation in the request (ADR-058)
+- Delivery is **at-least-once** with an idempotent consumer: offsets are committed only after persist+publish; redelivery replays the current state instead of re-evaluating, and duplicate `TransactionEvaluated` messages are tolerated downstream (ADR-058)
+- `TransactionCreatedEvent` carries the full creation snapshot; the worker only needs the ID (it re-reads the row for the state transition and day computation)
 
 ## Domain Layer
 
@@ -179,44 +232,43 @@ Ports are defined in the **Application Layer** because they represent capabiliti
 
 The `Guard` class centralizes precondition validation, replacing repetitive inline checks across the Domain:
 
-| Method | Replaces | Used In |
-|--------|----------|---------|
-| `AgainstNull<T>(T?, string)` | `ArgumentNullException.ThrowIfNull` + nullables | Entity/VO constructors, FraudRuleEngine, Handler |
-| `AgainstNullOrWhiteSpace(string, string)` | Manual `string.IsNullOrWhiteSpace` checks | `FraudRule.Rename`, `Money` constructor |
-| `AgainstOutOfRange(int, int, int, string)` | `ArgumentOutOfRangeException` | `FraudRule.ChangeRiskScore` (0–100) |
-| `AgainstOutOfRange(decimal, decimal, decimal, string)` | Manual range checks | Reserved for future decimal-range VOs |
-| `AgainstEmptyGuid(Guid, string)` | 3 identical `Guid.Empty` checks | `TransactionId`, `CustomerId`, `FraudRuleId` constructors |
-| `AgainstNegative(decimal, string)` | Negative value checks | `Money.Amount`, `HighAmountTransactionSpecification` threshold |
+| Method | Used In |
+|--------|---------|
+| `AgainstNull<T>(T?, string)` | Entity constructors, FraudRuleEngine, handlers |
+| `AgainstNullOrWhiteSpace(string, string)` | String inputs (legacy — no current string fields on Transaction) |
+| `AgainstOutOfRange(int, int, int, string)` | `TransferTypeId` (> 0) |
+| `AgainstOutOfRange(decimal, decimal, decimal, string)` | Reserved |
+| `AgainstEmptyGuid(Guid, string)` | `TransactionExternalId`, `SourceAccountId`, `TargetAccountId` |
+| `AgainstNegative(decimal, string)` | `DailyAccumulatedSpecification` constructor |
+| `AgainstNonPositive(decimal, string)` | `Value` (> 0) |
+| `AgainstUndefinedEnum<T>(T, string)` | `Reject(reason)` — reason must be a defined enum value |
 
-**Why centralized:** Eliminates 11 scattered null checks and 3 identical `Guid.Empty` checks. The Guard lives in Domain (not SharedKernel) because all consumers are Domain classes — no external project needs it.
+**Why centralized:** consistent precondition vocabulary, single-place semantics, testable in one file.
 
 ### Result Pattern
 
-State transitions in `Transaction` (`Approve`, `Reject`, `MarkForReview`) return `Result` instead of throwing `InvalidOperationException`:
+State transitions in `Transaction` (`Approve`, `Reject(reason)`) return `Result` instead of throwing for expected failures:
 
-- **`Result`** (non-generic) — success/failure with error message; returned by `Transaction.ChangeStatus()`
-- **`Result<T>`** (generic) — success with value or failure with error; available for future use
+- `Approve()` — only from `Pending`; clears `RejectionReason`
+- `Reject(RejectionReason reason)` — only from `Pending`; reason is mandatory (compile-time signature + `AgainstUndefinedEnum` guard)
+- Any other transition returns `Result.Failure("Only transactions in Pending status can change state...")`
 
-**Why only for state transitions:** State transitions represent expected domain flows where a caller (Handler) should handle the outcome explicitly. Other preconditions (null checks, range validation) remain exception-based because they represent programming errors, not expected business outcomes.
+**Why only for state transitions:** state transitions represent expected domain flows where a caller (Handler) should handle the outcome explicitly. Other preconditions (null checks, range validation) remain exception-based because they represent programming errors, not expected business outcomes.
 
-The `ApplyRecommendedStatus` method in the handler checks `result.IsFailure` and throws only if the programmatic contract is violated (transaction not in Pending state), which would indicate a bug.
+### Entity: Transaction
 
-### Entities
+| Field | Type | Notes |
+|-------|------|-------|
+| `TransactionExternalId` | `Guid` | Primary key, **server-generated** (`Guid.NewGuid()`), contract name `transactionExternalId` |
+| `SourceAccountId` | `Guid` | External account identifier; must not be `Guid.Empty` |
+| `TargetAccountId` | `Guid` | External account identifier; must not be `Guid.Empty` |
+| `TransferTypeId` | `int` | > 0 |
+| `Value` | `decimal` | > 0, `decimal(18,2)` in DB |
+| `CreatedAt` | `DateTime` | UTC, server-generated; day boundary for the daily rule (ADR-057) |
+| `Status` | `TransactionStatus` | `Pending` \| `Approved` \| `Rejected` — exactly three states |
+| `RejectionReason` | `RejectionReason?` | `HighValue` \| `DailyAccumulated`; set only when rejected (ADR-056) |
 
-| Entity | Identity | Key Behavior |
-|--------|----------|-------------|
-| `Transaction` | `TransactionId` | `Approve()`, `Reject()`, `MarkForReview()` — return `Result`, protected via `ChangeStatus()` |
-| `FraudRule` | `FraudRuleId` | `Enable()`, `Disable()`, `Rename()`, `ChangeRiskScore()` |
-| `BlacklistedCustomer` | `CustomerId` | Created with a non-empty reason; used as the source for `BlacklistCustomerSpecification` |
-
-### Value Objects
-
-| VO | Wraps | Validation | Guard Methods Used |
-|----|-------|------------|-------------------|
-| `Money` | `decimal Amount` + `string Currency` | Amount ≥ 0, Currency 3-letter ISO | `AgainstNegative`, `AgainstNullOrWhiteSpace` |
-| `TransactionId` | `Guid` | Not `Guid.Empty` | `AgainstEmptyGuid` |
-| `CustomerId` | `Guid` | Not `Guid.Empty` | `AgainstEmptyGuid` |
-| `FraudRuleId` | `Guid` | Not `Guid.Empty` | `AgainstEmptyGuid` |
+There are no value objects anymore: the real contract uses plain Guids/decimal and the IDs carry no domain behavior (ADR-051 supersedes ADR-009 for this context).
 
 ### Specification Pattern
 
@@ -228,141 +280,118 @@ public interface ISpecification
 }
 ```
 
-The interface is **non-generic** (YAGNI — only `Transaction` is evaluated). Implementations live in `Domain/Specifications/Transactions/`.
+The interface is **non-generic** (YAGNI — only `Transaction` is evaluated). Exactly two specifications exist — the complete set of rejection criteria from the challenge:
 
-Four specifications currently exist:
-- `HighAmountTransactionSpecification` — evaluates `transaction.Amount.Amount >= threshold`
-- `VelocityTransactionSpecification` — evaluates `transaction.RecentTransactionCount >= max` (velocity check)
-- `BlacklistCustomerSpecification` — evaluates whether `transaction.CustomerId` is in a blacklist set
-- `HighRiskCountrySpecification` — evaluates whether `transaction.Country` is a high-risk country code (ISO 3166-1 alpha-2)
+| Specification | Criterion | Threshold |
+|---------------|-----------|-----------|
+| `HighValueSpecification` | `Value > HighValueLimit` | `2000m` (constant in the spec) |
+| `DailyAccumulatedSpecification` | `accumulatedToday > DailyAccumulatedLimit` | `20000m` (constant in the spec) |
 
-### Blacklist Flow (Dynamic Specification Layering)
-
-The blacklist is **database-backed and dynamic**:
-
-1. `IBlacklistProvider` (port, Application) exposes `IsBlacklistedAsync`, `GetAllAsync`, `AddAsync`, `RemoveAsync`
-2. `DbBlacklistProvider` (adapter, Infrastructure) implements it against the `BlacklistedCustomers` table via EF Core
-3. The handler loads the full blacklist **on every analysis request** and constructs a fresh `BlacklistCustomerSpecification` from the current customer IDs
-4. That specification is layered over the provider's static specifications in a copy of the dictionary — the rule engine needs no changes
-
-```
-AnalyzeTransactionHandler
-   │  _blacklistProvider.GetAllAsync()          ← DB-backed, per request
-   ▼
-   new Dictionary<string, ISpecification>(staticSpecs)
-   { ["Blacklist"] = new BlacklistCustomerSpecification(currentIds) }
-   ▼
-FraudRuleEngine.Evaluate(transaction, rules, effectiveSpecifications)
-```
-
-The `FraudRules` table stores the Blacklist rule metadata (risk score, Reject action); only the customer set itself is dynamic.
-
-### Config-Driven Rule Parameters
-
-Fraud rule thresholds are bound from the `FraudRules` appsettings section into `FraudRuleOptions` (Infrastructure/Configuration) and injected into `DbFraudRuleProvider`, which uses them to construct the static specifications:
-
-| Setting | Default | Drives |
-|---------|---------|--------|
-| `HighAmountThreshold` | 10000 | `HighAmountTransactionSpecification` |
-| `VelocityMaxTransactions` | 5 | `VelocityTransactionSpecification` |
-| `VelocityWindowMinutes` | 60 | `VelocityTransactionSpecification` (time window) |
-| `HighRiskCountries` | IR, KP, SY, VE | `HighRiskCountrySpecification` |
-
-No business numbers are hardcoded in providers anymore — `InMemoryFraudRuleProvider` (testing fallback) still uses its own constants, which is intentional.
+Thresholds are **constants of the Domain specs** — the real challenge fixes them; there is no rules table and no `FraudRuleOptions` (ADR-051). `DailyAccumulatedSpecification` receives the pre-computed day sum via its constructor (same pattern as the legacy velocity spec): the repository computes `SUM(Value)` and the spec stays pure. The accumulated sum INCLUDES the transaction being evaluated (ADR-057).
 
 ### Domain Service: FraudRuleEngine
 
-The `FraudRuleEngine` is a **stateless domain service** that:
-
-1. Receives a `Transaction`, a list of `FraudRule`, and a specification dictionary
-2. Iterates enabled rules and evaluates their specifications
-3. Accumulates risk scores from matched rules
-4. Returns a `FraudRuleEngineResult` with total risk score and recommended status
+The `FraudRuleEngine` is a **stateless, deterministic** domain service:
 
 ```csharp
-public FraudRuleEngineResult Evaluate(
-    Transaction transaction,
-    IEnumerable<FraudRule> fraudRules,
-    IReadOnlyDictionary<string, ISpecification> specifications)
+public FraudRuleEngineResult Evaluate(Transaction transaction, decimal dailyAccumulatedAmount)
 ```
 
-**Risk logic:**
-- `matchedRules.Any(Action == Reject)` → `Rejected`
-- `totalRiskScore > 0` → `UnderReview`
-- `totalRiskScore == 0` → `Approved`
-- Rejection takes precedence over review — if both rejection and review rules match, the transaction is `Rejected`
+Rules run in **fixed precedence order** — both rules reject, so the first satisfied rule determines the rejection reason:
 
-## Request Lifecycle
+1. `HighValueSpecification` satisfied → `Rejected(HighValue)`
+2. `DailyAccumulatedSpecification` satisfied → `Rejected(DailyAccumulated)`
+3. neither → `Approved`
+
+The result (`FraudRuleEngineResult`) is a record of `(RecommendedStatus, RejectionReason?)`. No risk scoring exists (ADR-056).
+
+## Application Layer Slices
+
+### CreateTransaction (API side)
+
+| File | Responsibility |
+|------|----------------|
+| `CreateTransactionCommand` | `SourceAccountId`, `TargetAccountId`, `TransferTypeId`, `Value` — maps 1:1 to the challenge's Resource 1 payload |
+| `CreateTransactionValidator` | FluentValidation: Guids non-empty, `TransferTypeId > 0`, `Value > 0` |
+| `CreateTransactionHandler` | Creates the domain Transaction (Pending) → `AddAsync` → publishes `TransactionCreated` → returns `{ transactionExternalId, createdAt, status: "pending" }` |
+| `CreateTransactionResult` | Response DTO (201 body) |
+
+Persist-then-publish is deliberate and documented: a publish failure surfaces as 500 while the row stays pending (outbox pattern is the documented production path — ADR-058).
+
+### EvaluateTransaction (worker side)
+
+| File | Responsibility |
+|------|----------------|
+| `EvaluateTransactionCommand` | `TransactionExternalId` |
+| `EvaluateTransactionHandler` | Load → (replay if not Pending) → compute day sum → `FraudRuleEngine.Evaluate` → `Approve()`/`Reject(reason)` → `UpdateAsync` → result |
+| `EvaluateTransactionResult` | `(TransactionExternalId, Status, RejectionReason?)` |
+
+Lives in **Application** (not in the Worker project) so the whole evaluation logic is unit-testable without Kafka/hosting concerns. The Worker is a thin orchestrator: consume → call handler → publish → commit.
+
+### GetTransaction (query side)
+
+`GetTransactionResponse(TransactionExternalId, CreatedAt, Status, RejectionReason?)` — the challenge's Resource 2 contract base (transactionExternalId + createdAt) extended with `status` and the audit `rejectionReason`.
+
+## Infrastructure Layer
+
+### Persistence (EF Core 8 + SQL Server)
+
+- `FraudDetectionDbContext` — single aggregate: `Transactions`
+- `TransactionConfiguration` — table `Transactions`, PK `TransactionExternalId`, `decimal(18,2)` Value, lowercase-string `Status`/`RejectionReason` (max 20), composite index **`IX_Transactions_SourceAccountId_CreatedAt`** covering the daily-accumulated query (equality on account + range on UTC day)
+- `EfTransactionRepository`:
+  - `AddAsync` — insert; duplicates translate to `TransactionConflictException` (defensive — IDs are server-generated)
+  - `GetByIdAsync(Guid)` — `AsNoTracking`
+  - `GetDailyAccumulatedAsync(Guid, DateOnly)` — `SUM(Value)` over `[midnight UTC, midnight UTC + 1 day)` (ADR-057)
+  - `UpdateAsync` — attach + save (worker is the only status writer; no concurrency token — documented in ADR-054)
+- One fresh `InitialCreate` migration (`20260813020511`); `FraudDetectionDbContextFactory` (design-time) keeps `dotnet ef` independent of the API host (ADR-055)
+- Status/reason converters store LOWERCASE strings, matching the JSON wire format
+
+### Messaging (Kafka via Confluent.Kafka — ADR-053)
+
+- `KafkaEventPublisher : IEventPublisher` — producer with `Acks.All` + idempotence; JSON via `KafkaJsonSerializerOptions` (camelCase, lowercase enums); **message key = transaction external ID** → per-transaction partitioning/ordering; `MessageTimeoutMs = 10s` dev fail-fast
+- Topics: `transaction-created`, `transaction-evaluated` (configurable `Kafka:Topics:*`)
+- `KafkaOptions` + `KafkaOptionsValidator` (Infrastructure) — validated at startup in both hosts
+- The consumer lives in the **Worker** project (the only consumer today): `Confluent.Kafka` consumer with `GroupId`, `AutoOffsetReset`, manual commits, poison-message skip, and per-message DI scopes (a `BackgroundService` is a singleton and must not hold a scoped `DbContext`)
+
+## Configuration
+
+Both hosts (Api `appsettings.json` + Worker `appsettings.json`) bind the same sections; environment override uses the double-underscore convention (`KAFKA__BOOTSTRAPSERVERS`, `ConnectionStrings__DefaultConnection`):
+
+| Section | Used by | Purpose |
+|---------|---------|---------|
+| `ConnectionStrings:DefaultConnection` | Api + Worker | SQL Server connection string (`(localdb)` in dev; the `sqlserver` service in compose) |
+| `Kafka` | Api + Worker | `BootstrapServers`, `GroupId`, `AutoOffsetReset`, `Topics:{TransactionCreated,TransactionEvaluated}` — bound to `KafkaOptions`, validated at startup by `KafkaOptionsValidator` (fail-fast, ADR-053) |
+| `RateLimit` | Api | `PermitLimit` (30), `WindowSeconds` (60) for the fixed-window policy `create-transaction` (ADR-046) |
+| `AutoMigrate` | Api + Worker | When `true` (or in Development), pending migrations are applied at startup — compose dev/portfolio choice (ADR-054) |
+
+## DI Wiring
+
+- **Api** (`Program.cs`): `FraudDetectionDbContext` (scoped, SQL Server) → `ITransactionRepository` (scoped `EfTransactionRepository`) → `IEventPublisher` (singleton `KafkaEventPublisher`) → `CreateTransactionValidator` + `CreateTransactionHandler` (scoped). `KafkaOptions` and `RateLimitOptions` use `Configure<>` + `ValidateOnStart`; the fixed-window limiter policy is registered via `AddRateLimiter`.
+- **Worker** (`Program.cs`): same persistence + publisher registrations and Kafka validation; `FraudRuleEngine` (singleton, stateless), `ITransactionRepository` + `EvaluateTransactionHandler` (scoped), hosted `TransactionEvaluationWorker`. Because a `BackgroundService` is a singleton, scoped dependencies are resolved **per message** via `IServiceScopeFactory` — the worker must never hold a scoped `DbContext`.
+- Both are independent composition roots with the same dependency direction (Api/Worker → Application → Domain; Infrastructure implements the ports). The Api is the producer side only; the Worker is the only consumer.
+
+## Request Lifecycle (API)
 
 ```
-HTTP POST /api/v1/transactions/analyze
-         │
-         ▼
-  SecurityHeadersMiddleware (global)
-         │   Adds security headers to the response:
-         │   X-Content-Type-Options, X-Frame-Options, Referrer-Policy,
-         │   X-Permitted-Cross-Domain-Policies, Content-Security-Policy
-         │   (HSTS applied via UseHsts() outside Development)
-         ▼
-  ExceptionHandlingMiddleware (global)
-         │   Catches all unhandled exceptions
-         │   Logs structured error with Method, Path, TraceIdentifier
-         │   Returns 500 ProblemDetails (RFC 7807, application/problem+json)
-         │   with requestId = context.TraceIdentifier
-         ▼
-  AnalyzeTransactionEndpoint
-         │  Creates: AnalyzeTransactionCommand (deserialized from JSON body)
-         │  Calls:   validator.ValidateAsync(command)
-         │
-         ▼
-   AnalyzeTransactionValidator
-          │
-          │  Validates: TransactionId != empty, Amount >= 0,
-          │  Currency.Length == 3, Currency is uppercase, CustomerId != empty
-         │
-         ▼  (if invalid → return 400 ValidationProblem)
-         │
-  AnalyzeTransactionHandler.Handle(command)
-         │
-          │  Creates domain objects:
-          │    TransactionId.From(), CustomerId.From(), new Money()
-          │    new Transaction(id, customerId, amount, timestamp, country, metadata)
-          │    transaction.RecentTransactionCount = await _transactionRepository.GetTransactionCountSinceAsync(customerId, since)  (real velocity query)
-          │
-          │  Gets rules + specs:
-          │    _ruleProvider.GetAllRules()
-          │    _ruleProvider.GetSpecifications()
-          │
-          │  Loads dynamic blacklist:
-          │    var blacklisted = await _blacklistProvider.GetAllAsync()
-          │    effectiveSpecs = specs + ["Blacklist" = new BlacklistCustomerSpecification(blacklisted ids)]
-          │
-          ▼
-   FraudRuleEngine.Evaluate(transaction, rules, effectiveSpecs)
-          │
-          │  For each enabled rule with matching spec:
-          │    if spec.IsSatisfiedBy(transaction) → add risk score
-          │    if matched rule has Action == Reject → status = Rejected
-          │
-          ▼
-   FraudRuleEngineResult { TotalRiskScore, RecommendedStatus, MatchedRules }
-         │
-         ▼
-  Handler applies status via Result pattern:
-    Approved → transaction.Approve()  → Result
-    UnderReview → transaction.MarkForReview() → Result
-    Rejected → transaction.Reject() → Result
-    If result.IsFailure → throw (programming contract violation)
-         │
-         ▼
-  Transaction persisted via ITransactionRepository.AddAsync
-         │
-         ▼
-  AnalyzeTransactionResult { TransactionId, Status, TotalRiskScore, MatchedRules }
-         │
-         ▼
-  HTTP 200 OK ← JSON response
+HTTP POST /api/v1/transactions
+   │
+   ▼ SecurityHeadersMiddleware (global) — security headers on the response
+   ▼ ExceptionHandlingMiddleware (global) — 500 → RFC 7807 ProblemDetails + requestId
+   ▼ RateLimitingMiddleware (global) — policy "create-transaction" (fixed window)
+   │     exhausted → 429 ProblemDetails + Retry-After (ADR-046)
+   ▼ TransactionsEndpoint
+   │     validator.ValidateAsync(command)
+   │       invalid → 400 ValidationProblem  (FluentValidation)
+   ▼ CreateTransactionHandler.Handle(command)
+   │     new Transaction(Guid.NewGuid(), source, target, transferTypeId, value)
+   │     repository.AddAsync(transaction)                 ← persisted as Pending
+   │     eventPublisher.PublishAsync(TransactionCreated)  ← Kafka (persist-then-publish)
+   ▼ HTTP 201 Created
+         Location: /api/v1/transactions/{id}
+         Body: { transactionExternalId, createdAt, status: "pending" }
 ```
+
+`GET /api/v1/transactions/{id:guid}` reads the current row → `200` with state (lowercase `status`, optional `rejectionReason`) or `404` ProblemDetails with a `transactionExternalId` extension.
 
 ## EF Core Mapping Strategy
 
@@ -370,149 +399,75 @@ All EF Core concerns are isolated in **Infrastructure**.
 
 ### Value Converters
 
-Strongly-typed IDs are mapped via `ValueConverter<TModel, TProvider>`:
-
 | Converter | Converts |
 |-----------|----------|
-| `TransactionIdConverter` | `TransactionId` ↔ `Guid` |
-| `CustomerIdConverter` | `CustomerId` ↔ `Guid` |
-| `FraudRuleIdConverter` | `FraudRuleId` ↔ `Guid` |
-| `TransactionStatusConverter` | `TransactionStatus` ↔ `string` |
+| `TransactionStatusConverter` | `TransactionStatus` ↔ lowercase string (`'approved'`) |
+| `RejectionReasonConverter` | `RejectionReason` ↔ lowercase string (`'highvalue'`) |
 
-### Owned Types
-
-`Money` is mapped as an **owned type** (not a converter), producing two columns:
-- `Amount_Amount` (decimal)
-- `Amount_Currency` (string)
-
-### Entity Configurations
-
-Separate `IEntityTypeConfiguration<T>` classes per entity:
-- `TransactionConfiguration` — configures ID, owned Money, required properties, `IX_Transactions_CustomerId_CreatedAt` index
-- `FraudRuleConfiguration` — configures ID, required properties, Action column
-- `BlacklistedCustomerConfiguration` — configures `CustomerId` as key, `Reason` (max 200), `CreatedAt`
+No strongly-typed ID converters remain — identity is a plain `Guid` (ADR-051).
 
 ### Migrations
 
-Four migrations have been generated and are applied automatically on development startup (or in any environment with `AutoMigrate=true`):
-- `InitialCreate` — Transactions + FraudRules tables
-- `AddActionCountryMetadata` — Action column, Country, Metadata JSON
-- `AddCustomerIdCreatedAtIndex` — velocity query index
-- `AddBlacklistedCustomer` — BlacklistedCustomers table
+Exactly one migration (ADR-055): `InitialCreate` — `Transactions` table + `IX_Transactions_SourceAccountId_CreatedAt` index. Applied automatically on development startup or with `AutoMigrate=true` (API and Worker share the schema — ADR-054).
 
 ### Integration Tests
 
-Tests use **SQLite in-memory** (not SQL Server) to avoid external dependencies during CI:
-```csharp
-options.UseSqlite("DataSource=:memory:")
-```
+Tests use **SQLite file-based** (temporary `.db` file, not a shared `:memory:` connection) so each `DbContext` opens its own connection and SQLite's locking/busy-timeout semantics apply for concurrency tests. The ephemeral schema is built with `EnsureCreated` (migrations are SQL Server-targeted — ADR-049). Suite status: **152 tests passing (111 unit + 41 integration), 0 warnings** (verified with `dotnet build` / `dotnet test`). The daily-accumulated `SUM` projects to `double` for SQLite portability (cast back to `decimal` — see the repository remarks). A full Api → Kafka → Worker → DB round trip is NOT automated via Testcontainers in CI: the worker evaluation is covered at handler level with fakes, and the end-to-end flow is validated manually against the compose stack (see README).
 
 ## Error Handling (ProblemDetails / RFC 7807)
 
 - `AddProblemDetails()` registers the standard ProblemDetails service
-- `ExceptionHandlingMiddleware` catches unhandled exceptions, logs them (Method, Path, TraceIdentifier), and returns `500 Internal Server Error` with an RFC 7807 `application/problem+json` body:
-
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc9110#section-15.6.1",
-  "title": "An unexpected error occurred",
-  "status": 500,
-  "detail": "The server encountered an unexpected error. Please try again later.",
-  "requestId": "0HN3V9FL7O3S7:00000001"
-}
-```
-
-No stack traces or internal details are exposed. The `requestId` matches the structured log entry for correlation.
+- `ExceptionHandlingMiddleware` catches unhandled exceptions, logs them (Method, Path, TraceIdentifier), and returns `500 Internal Server Error` with an RFC 7807 `application/problem+json` body — no stack traces or internal details; `requestId` correlates with the structured log entry
+- `GET /api/v1/transactions/{id}` not found → `404 ProblemDetails` with a `transactionExternalId` extension
+- Validation errors → `400 ValidationProblem` (FluentValidation `ToDictionary()`)
+- Rate-limit rejection → `429 ProblemDetails` + `Retry-After` header (ADR-046)
 
 ## Security Headers
 
-`SecurityHeadersMiddleware` applies to every response:
-
-| Header | Value | Purpose |
-|--------|-------|---------|
-| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
-| `X-Frame-Options` | `DENY` | Prevents clickjacking |
-| `Referrer-Policy` | `no-referrer` | No referrer leakage |
-| `X-Permitted-Cross-Domain-Policies` | `none` | Restricts Adobe/PDF cross-domain access |
-| `Content-Security-Policy` | `default-src 'self'` | Restricts content sources |
-
-`UseHsts()` is applied in non-development environments, enforcing HTTPS at the edge (terminated by a reverse proxy or load balancer in production).
+`SecurityHeadersMiddleware` applies `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `X-Permitted-Cross-Domain-Policies: none`, `Content-Security-Policy: default-src 'self'` to every response. `UseHsts()` is applied in non-development environments. No secrets in source code; Kafka and DB configuration are environment-driven.
 
 ## Docker Deployment
 
-- **Multi-stage Dockerfile**: SDK 8.0 build stage (layer-cached restore via csproj copies, Release publish) → `aspnet:8.0` runtime stage
-- Runtime stage installs `curl` (for the healthcheck), switches to the non-root `$APP_UID` user, sets `ASPNETCORE_URLS=http://+:8080`, and defines a `HEALTHCHECK` hitting `GET /health`
-- **docker-compose.yml**: SQL Server 2022 (`mssql/server:2022-latest`) with a named volume and health gate, plus the API container that waits for SQL Server (`depends_on: condition: service_healthy`)
-- `AutoMigrate=true` env var makes the API apply pending migrations and seed default rules + demo blacklisted customer on container startup
+- **Multi-stage Dockerfile**: one SDK 8.0 build stage publishes both the API and the Worker; two runtime stages — `final-api` (default; curl + HEALTHCHECK on `/health/live`, non-root user) and `final-worker` (no HTTP surface, so no HEALTHCHECK)
+- **docker-compose.yml** (4 services):
+  - `sqlserver` — SQL Server 2022, named volume, health gate
+  - `kafka` — Confluent cp-kafka **KRaft single node** (no ZooKeeper), PLAINTEXT internal listener (`kafka:29092`) + `localhost:9092` for host tools, `AUTO_CREATE_TOPICS_ENABLE=true` dev convenience, health check via `kafka-topics --list`
+  - `api` — build `target: final-api`; Kafka + SQL env; waits for `sqlserver` AND `kafka` healthy
+  - `worker` — build `target: final-worker`; same Kafka + SQL env; `AutoMigrate=true`; waits for `kafka` AND `api` healthy (the API applies the shared schema first)
+- `AutoMigrate=true` makes both the API and the Worker apply pending migrations on startup (dev/portfolio choice — ADR-054)
 - The SA password is passed via `MSSQL_SA_PASSWORD` (default demo value; override via `.env`)
-- `.dockerignore` excludes bin/, obj/, .git, test results, development appsettings, and `.env`
 
-## Current Limitations
+## Current Limitations (Real Challenge Scope)
 
 ### Implemented (What Works)
 
-- Full fraud analysis flow: HTTP → Handler → Domain Service → Result → Response
-- 209 tests passing (165 unit + 44 integration), build with 0 errors and 0 warnings
-- DbFraudRuleProvider active — reads fraud rules from database with auto-migration + seeding on dev startup
-- Transaction persistence via ITransactionRepository (transactions persisted after analysis)
-- Real velocity detection via GetTransactionCountSinceAsync() querying the database
-- Country field on Transaction (ISO 3166-1 alpha-2) replacing currency proxy in HighRiskCountrySpecification
-- Metadata dictionary on Transaction (stored as JSON column)
-- Timestamp field on Transaction — client-provided timestamp used as CreatedAt
-- GET /api/v1/transactions/{id} endpoint returning the typed GetTransactionResponse DTO
-- Health check endpoint at GET /health with DB connectivity check
-- Guard Pattern centralizing all precondition checks
-- Result Pattern for Transaction state transitions
-- EF Core mappings, value converters, and 4 migrations ready
-- Global ExceptionHandlingMiddleware returning RFC 7807 ProblemDetails with requestId
-- SecurityHeadersMiddleware + HSTS (non-development)
-- Structured logging with ILogger<T> in handlers and middleware
-- Performance benchmark tests (Stopwatch-based, < 1000ms budget with documented methodology)
-- CustomerId + CreatedAt composite index for velocity query performance
-- AsNoTracking() for read-only queries (GetTransactionCountSinceAsync)
-- Blacklist persistence: BlacklistedCustomer entity, IBlacklistProvider port, DbBlacklistProvider, per-request dynamic specification layering
-- Config-driven rule parameters (FraudRuleOptions bound from the FraudRules section)
-- Docker containerization (multi-stage, non-root, HEALTHCHECK, AutoMigrate)
-- GitHub Actions CI (path-filtered to Projects/FraudDetection)
-
-### Amount Boundary Alignment
-
-The `Money` Value Object validates `amount >= 0` (via `Guard.AgainstNegative`). The FluentValidation validator previously used `GreaterThan(0)`, which was stricter than the Domain. This mismatch meant that `Amount = 0` passed Domain validation but was rejected by the API.
-
-**Fix:** Changed the FluentValidation rule to `GreaterThanOrEqualTo(0)` to match the Domain invariant. Domain is the source of truth — input validation must not be stricter than domain rules.
+- Async anti-fraud flow: API (201 + pending) → Kafka `transaction-created` → Worker evaluates → persists approved/rejected → publishes `transaction-evaluated`
+- Exactly three states; exactly two rejection rules with constants in Domain specs
+- GET returns current state + rejection reason audit (decision audit = `RejectionReason`, ADR-056)
+- At-least-once delivery with idempotent consumer replay and poison-message handling (ADR-058)
+- Rate limiting, ProblemDetails everywhere, security headers, health probes, structured logging
+- Production build 0 errors / 0 warnings; **152 tests passing (111 unit + 41 integration)**; fresh single migration; docker-compose with Kafka
 
 ### Intentionally Deferred
 
 | Feature | Rationale |
 |---------|-----------|
-| Composite specifications (AND/OR/NOT) | Current rules are independently evaluated — composition adds complexity without current benefit |
-| Additional specifications | Only 4 rules required by the challenge — domain can be extended later |
-| Blacklist CRUD API | Provider supports add/remove programmatically; HTTP endpoints deferred |
-| Authentication / Authorization | Not scoped for this phase — documented in README |
-| OpenTelemetry metrics and tracing | Structured logs + health endpoint cover current observability needs |
-| Rate limiting | No protection against API abuse — documented |
+| Transactional outbox | Documented production path for persist-then-publish gap (ADR-058) |
+| Dead-letter topic / retry policy | Poison messages are logged/committed/skipped; processing failures retried by redelivery (ADR-058) |
+| Explicit Kafka topic management | `AUTO_CREATE_TOPICS_ENABLE=true` for dev; production manages topics (ADR-053) |
+| Split databases (API vs Worker) | Shared DB is a pragmatic single-deployment choice (ADR-054) |
+| Authentication / Authorization | Deliberate portfolio decision (ADR-041) |
+| OpenTelemetry metrics and tracing | Structured logs + health endpoints cover current needs |
 
-### Engine Status Logic
+### Known Accepted Risks
 
-| Status | Produced by Engine? | Condition |
-|--------|---------------------|-----------|
-| `Approved` | ✅ Yes | Returned when no rules match (risk score 0) |
-| `UnderReview` | ✅ Yes | Returned when at least one rule matches and none have `Action == Reject` |
-| `Rejected` | ✅ Yes | Returned when at least one matched rule has `Action == Reject` (takes precedence over review) |
-
-### Future Extension
-
-| Feature | Expected Sprint |
-|---------|----------------|
-| Blacklist CRUD API (HTTP) | Future |
-| Composite specifications (AND/OR/NOT) | Future |
-| OpenTelemetry metrics and tracing | Future |
-| Authentication / authorization | Future |
-| Rate limiting | Future |
-| Load testing against SQL Server | Future |
-| Kafka event streaming | Sprint 7 |
-| AI-powered analysis | Sprint 8 |
-| n8n automation | Future |
+| Risk | Note |
+|------|------|
+| At-least-once duplicates | Duplicate `TransactionEvaluated` possible after crash-redelivery; workers are idempotent, consumers must tolerate duplicates (ADR-058) |
+| Lost message window (persist-then-publish) | Publish failure → 500 + Pending row; outbox is the production fix (ADR-058) |
+| No concurrency token on Transaction | Worker is the only status writer; last-write-wins (ADR-054) |
+| UTC day boundaries | Server-side rule semantics; documented (ADR-057) |
+| Kafka E2E round trip not automated | No Testcontainers/broker test in CI — the real Api → Kafka → Worker → DB flow is validated manually via docker compose (README); worker logic is unit/integration-tested at handler level |
 
 ## Architecture Diagrams
 
@@ -522,72 +477,64 @@ The `Money` Value Object validates `amount >= 0` (via `Guard.AgainstNegative`). 
                     ┌──────────────────────────────────────────┐
                     │              Domain Layer                │
                     │                                          │
-                    │  ┌──────────┐  ┌──────────────────────┐  │
-                    │  │ Entities │  │   Specifications     │  │
-                    │  │ Transaction  │  ISpecification       │  │
-                    │  │ FraudRule │  │ HighAmountSpec      │  │
-                     │  │              │  │ VelocitySpec        │  │
-                     │  │              │  │ BlacklistSpec       │  │
-                     │  │              │  │ HighRiskCountrySpec │  │
-                    │  └──────────┘  └──────────────────────┘  │
+                    │  ┌──────────┐   ┌─────────────────────┐  │
+                    │  │ Entity   │   │ Specifications      │  │
+                    │  │Transaction│  │ HighValueSpec       │  │
+                    │  │          │   │ DailyAccumulatedSpec│  │
+                    │  └──────────┘   └─────────────────────┘  │
                     │  ┌──────────────────────────────────┐    │
                     │  │   FraudRuleEngine (Domain Svc)   │    │
+                    │  │   deterministic, 2 fixed rules   │    │
                     │  └──────────────────────────────────┘    │
                     └──────────────────────────────────────────┘
                               ▲            ▲
                               │            │
                     ┌─────────┴────────────┴──────────────────┐
                     │          Application Layer               │
-                    │                                          │
-                    │  ┌────────────────────────────────────┐  │
-                    │  │    AnalyzeTransaction Slice        │  │
-                    │  │  Command → Validator → Handler    │  │
-                    │  └────────────────────────────────────┘  │
-                    │  ┌────────────────────────────────────┐  │
-                    │  │   IFraudRuleProvider (Port)        │  │
-                    │  └────────────────────────────────────┘  │
-                    └──────────────────────────────────────────┘
-                              ▲            ▲
-               ┌──────────────┘            └──────────────┐
-               │                                           │
-    ┌──────────┴──────────┐                  ┌────────────┴──────────┐
-    │    Api Layer         │                  │  Infrastructure      │
-    │  (Inbound Adapter)   │                  │  (Outbound Adapters) │
-    │                      │                  │                      │
-    │  AnalyzeTransaction  │                  │  InMemoryRuleProv.   │
-    │  Endpoint (Minimal)  │                  │  DbFraudRuleProvider │
-    │                      │                  │  EF Core DbContext   │
-    │  Program.cs (DI)     │                  │  ValueConverters     │
-    └──────────────────────┘                  └──────────────────────┘
+                    │  CreateTransaction | EvaluateTransaction │
+                    │  GetTransaction (vertical slices)        │
+                    │  Ports: ITransactionRepository,          │
+                    │         IEventPublisher                  │
+                    └─────────▲──────────────▲─────────────────┘
+                              │              │
+        ┌─────────────────────┴───┐    ┌─────┴──────────────────┐
+        │  Api (Inbound Adapter)  │    │  Infrastructure        │
+        │  TransactionsEndpoint   │    │  (Outbound Adapters)   │
+        │  Program.cs (DI)        │    │  EfTransactionRepository│
+        ├─────────────────────────┤    │  KafkaEventPublisher   │
+        │  Worker (Inbound from   │    │  EF Core DbContext     │
+        │  Kafka — consumer loop) │    └────────────────────────┘
+        └─────────────────────────┘
 ```
 
 ### Dependency Graph (Layer Diagram)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Api                                                                 │
+│  Api  /  Worker  (composition roots)                                 │
 │  Depends on: Application, Infrastructure, Domain                     │
-│  Contains: Endpoints, Program.cs (composition root)                  │
+│  Api: endpoints, middleware    Worker: Kafka consumer loop           │
 └───────────────────────────┬─────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Application                                                         │
 │  Depends on: Domain (+ FluentValidation)                              │
-│  Contains: Commands, Handlers, Validators, Port interfaces            │
+│  Contains: Commands, Handlers, Validators, Ports, Events              │
 └───────────────────────────┬─────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Domain                                                              │
 │  Depends on: nothing (pure)                                          │
-│  Contains: Entities, VOs, Specifications, Domain Services            │
+│  Contains: Transaction, enums, Specifications, FraudRuleEngine,      │
+│            Guard, Result                                             │
 └─────────────────────────────────────────────────────────────────────┘
                             ▲
                             │
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Infrastructure                                                      │
 │  Depends on: Domain, Application (implements ports)                  │
-│  Contains: EF Core, Providers, Converters, Configurations            │
+│  Contains: EF Core + repository, Kafka producer, Kafka options       │
 └─────────────────────────────────────────────────────────────────────┘
 ```

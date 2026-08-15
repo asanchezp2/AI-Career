@@ -26,5 +26,7 @@ public class SecurityHeadersTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
         Assert.Equal("DENY", response.Headers.GetValues("X-Frame-Options").Single());
         Assert.Equal("no-referrer", response.Headers.GetValues("Referrer-Policy").Single());
+        Assert.Equal("none", response.Headers.GetValues("X-Permitted-Cross-Domain-Policies").Single());
+        Assert.Equal("default-src 'self'", response.Headers.GetValues("Content-Security-Policy").Single());
     }
 }
