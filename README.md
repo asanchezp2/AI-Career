@@ -44,17 +44,11 @@ Target: Remote full-time position paid in USD.
 
 ---
 
-# Current Portfolio Project
+# Portfolio Projects
 
-## Fraud Detection API
-
-A real-time fraud detection system built with .NET 8.
-
-- **Architecture:** Hexagonal (Ports & Adapters) + Vertical Slice
-- **Domain:** Transaction Entity, Value Objects (Money, TransactionId, CustomerId), Enums
-- **Application:** Commands, FluentValidation, Vertical Slice structure
-- **Testing:** xUnit, 40 passing tests
-- **Build:** 0 warnings, 0 errors
+| Project | Repository | Description |
+|---------|------------|-------------|
+| Fraud Detection API | [Fraud-Detection-Challenge](https://github.com/asanchezp2/Fraud-Detection-Challenge) | .NET 8 anti-fraud system with Kafka async evaluation |
 
 ---
 
@@ -62,12 +56,8 @@ A real-time fraud detection system built with .NET 8.
 
 | Directory | Purpose |
 |-----------|---------|
-| Career/ | Career blueprint and strategy |
 | KnowledgeBase/ | Technical notes on architecture and patterns |
 | NotebookLM/ | Study materials and assessments |
-| Projects/ | Portfolio projects (Fraud Detection API) |
-| Prompts/ | AI prompts for development workflow |
-| Roadmap/ | 6-month learning roadmap |
 
 ---
 
@@ -83,19 +73,6 @@ A real-time fraud detection system built with .NET 8.
 
 ---
 
-# Progress Metrics
+# Learning Roadmap
 
-| Metric | Value |
-|--------|-------|
-| Value Objects | 3 |
-| Entities | 1 |
-| Validators | 1 |
-| Tests | 40 passing |
-| Build warnings | 0 |
-| Build errors | 0 |
-
----
-
-# Next Milestone
-
-Implement FraudRule entity and FraudRuleEngine domain service to complete the Domain layer, then move to Application Layer use cases and API controllers.
+See [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md) for detailed learning priorities and career objectives.
