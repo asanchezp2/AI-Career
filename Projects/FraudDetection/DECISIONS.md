@@ -813,7 +813,7 @@ else → Approved
 - Worker composition in its own `Program.cs`: DbContext, `ITransactionRepository`, `FraudRuleEngine`, `KafkaEventPublisher`, `EvaluateTransactionHandler`, hosted `TransactionEvaluationWorker`.
 - The same `AutoMigrate` behavior as the API (shared schema, dev/portfolio choice — see below).
 - docker-compose: `worker` service builds the same Dockerfile (`target: final-worker`), depends on healthy Kafka + healthy API.
-**Trade-offs (shared database):** The API and the worker share one SQL Server database — pragmatic for a single-deployment portfolio demo (one compose file, one schema, auto-migrate on both sides). A production deployment would split the databases/services (worker may own its own store or the evaluation outcome is delivered back via Kafka only). No concurrency token on the transaction row; the worker is the only status writer, so last-write-wins is acceptable and documented.  
+**Trade-offs (shared database):** The API and the Worker share one SQL Server database — pragmatic for a single-deployment portfolio demo (one Compose file, one schema, auto-migrate on both sides). A production deployment would split the databases/services (the Worker may own its own store or the evaluation outcome is delivered back via Kafka only). This ADR originally made the Worker the status writer; that ownership is superseded by ADR-060, where the API response consumer persists terminal evaluation status and the Worker only reads/evaluates/publishes.
 **Status:** Approved
 
 ---
@@ -862,6 +862,8 @@ else → Approved
 
 ## ADR-058: POST Returns 201 + Pending; Asynchronous Evaluation via Kafka (No Synchronous Rules)
 
+> **Flow update:** ADR-060 supersedes the original evaluation-flow details below. The Worker now publishes `TransactionEvaluated` without changing the database; the API consumes that response and persists the status.
+
 **Date:** 2026-08-12  
 **Decision:** `POST /api/v1/transactions` returns `201 Created` with a `Location` header and body `{ transactionExternalId, createdAt, status: "pending" }`. The endpoint NEVER evaluates fraud rules: it persists the transaction as Pending and publishes `TransactionCreated` to Kafka; the worker evaluates asynchronously and the state becomes approved/rejected shortly after. `GET /api/v1/transactions/{id}` returns `{ transactionExternalId, createdAt, status }` (+ rejectionReason when rejected).  
 **Reason:** The challenge mandates async messaging — "NO synchronous evaluation in the request" — and defines the transaction as first existing (created) in a state that the anti-fraud microservice then updates. Corresponds to the superseded idempotency contract (ADR-042): transaction IDs are now server-generated; replay semantics moved to the consumer side (at-least-once idempotent processing).  
@@ -906,5 +908,25 @@ else → Approved
 - Swagger-in-Production exposes endpoint metadata publicly — accepted (portfolio scope, no sensitive data).
 - Health check packages pin Confluent.Kafka via their dependency graph; the resolved 2.15.0 matches the Infrastructure version today, but a future package bump could unify to a newer Confluent.Kafka — a deliberate, test-covered upgrade path.
 - `command`-line `-p:SourceRevisionId` in a git work tree can be overridden by MSBuild's own git detection (locally the git SHA wins; in Docker, where no git exists, the passed SHA wins) — behavior documented, values are always the real SourceRevisionId, never simulated.
+
+**Status:** Approved
+
+---
+
+## ADR-060: The Kafka Evaluation Response Is the State-Change Command
+
+**Date:** 2026-10-02
+**Decision:** The anti-fraud Worker consumes `TransactionCreated`, evaluates the transaction, and publishes `TransactionEvaluated`; it does not write the terminal status. A separately hosted consumer in the API consumes `TransactionEvaluated` with its own consumer group and applies/persists `approved` or `rejected`. The API commits the response offset only after persistence succeeds.
+
+**Reason:** The original challenge explicitly asks the anti-fraud microservice to send a message back so the transaction status is updated. Having the Worker update the database first and publish an informational event did not satisfy that flow literally. The response is now the input that causes the state change.
+
+**Implementation and delivery behavior:**
+- The worker evaluation handler calculates a decision and publishes the response event. The API apply handler validates the transaction ID, terminal status, and rejection-reason consistency before loading and updating the row.
+- The API response consumer uses `EvaluationResultGroupId`, separate from the worker group. It commits after successful persistence. Identical terminal duplicates are idempotent; conflicting terminal decisions and invalid/unknown responses are logged and committed/skipped as permanent poison messages.
+- Transient processing errors seek back to the failed offset and retry. Processing is at-least-once: a crash after DB persistence but before Kafka commit redelivers the response, which the idempotent apply handler accepts.
+- A publish failure in the worker leaves the source message uncommitted and causes re-evaluation/redelivery. An event may be published and then redelivered if the worker crashes before committing; the API handles identical duplicates.
+- This remains a single shared database and has no transactional outbox. Create persist-then-publish also retains its documented failure window. A dead-letter topic and bounded retry policy remain future production hardening; invalid messages are currently skipped after logging to avoid blocking a partition.
+
+**Trade-offs:** The API now hosts both HTTP endpoints and a Kafka background consumer, keeping persistence ownership with the service that owns the HTTP resource while meeting the required response-message semantics. The shared database and at-least-once transport keep the demo simple, but do not provide cross-system atomicity.
 
 **Status:** Approved

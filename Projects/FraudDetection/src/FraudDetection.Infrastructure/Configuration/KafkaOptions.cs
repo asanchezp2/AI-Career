@@ -24,6 +24,13 @@ public sealed class KafkaOptions
     public string GroupId { get; set; } = "fraud-detection-worker";
 
     /// <summary>
+    /// Consumer group ID used by the API to apply worker evaluation responses.
+    /// It is separate from the worker group so the two consumers do not compete
+    /// for messages on the same topic.
+    /// </summary>
+    public string EvaluationResultGroupId { get; set; } = "fraud-detection-api-status-updater";
+
+    /// <summary>
     /// Where the consumer starts reading when no committed offset exists:
     /// "Earliest" (replay from the beginning — dev-friendly) or "Latest".
     /// </summary>

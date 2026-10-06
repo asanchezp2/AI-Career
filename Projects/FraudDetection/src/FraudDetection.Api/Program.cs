@@ -3,8 +3,10 @@ using System.Threading.RateLimiting;
 using Confluent.Kafka;
 using FraudDetection.Api.Endpoints;
 using FraudDetection.Api.Health;
+using FraudDetection.Api.Messaging;
 using FraudDetection.Application.Abstractions;
 using FraudDetection.Application.Configuration;
+using FraudDetection.Application.Features.Transactions.ApplyTransactionEvaluation;
 using FraudDetection.Application.Features.Transactions.CreateTransaction;
 using FraudDetection.Infrastructure.Configuration;
 using FraudDetection.Infrastructure.Messaging;
@@ -47,8 +49,9 @@ builder.Services.AddDbContext<FraudDetectionDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Configuration — Kafka messaging (producer side; the consumer lives in the
-// FraudDetection.Worker project). Bound from the "Kafka" section, validated at
+// Configuration — Kafka messaging (API producer and status-response consumer;
+// fraud evaluation runs in the separate FraudDetection.Worker project).
+// Bound from the "Kafka" section, validated at
 // startup (ValidateOnStart) so a misconfigured deployment fails fast.
 builder.Services.Configure<KafkaOptions>(
     builder.Configuration.GetSection(KafkaOptions.SectionName));
@@ -151,13 +154,16 @@ builder.Services.AddHealthChecks()
         tags: new[] { HealthCheckTags.Ready },
         timeout: TimeSpan.FromSeconds(5));
 
-// Messaging — the API only PRODUCES TransactionCreated events; the consumer
-// (anti-fraud evaluation) runs in the separate FraudDetection.Worker project.
+// Messaging — the API produces TransactionCreated and consumes the worker's
+// TransactionEvaluated response. Fraud evaluation remains in the separate
+// FraudDetection.Worker project.
 builder.Services.AddSingleton<IEventPublisher, KafkaEventPublisher>();
+builder.Services.AddHostedService<KafkaTransactionEvaluatedConsumer>();
 
 // Application Services
 builder.Services.AddScoped<CreateTransactionHandler>();
 builder.Services.AddScoped<CreateTransactionValidator>();
+builder.Services.AddScoped<ApplyTransactionEvaluationHandler>();
 
 // Infrastructure — Persistence
 builder.Services.AddScoped<ITransactionRepository, EfTransactionRepository>();

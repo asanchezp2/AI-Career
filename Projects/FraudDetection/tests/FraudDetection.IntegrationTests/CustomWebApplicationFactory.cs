@@ -1,4 +1,5 @@
 using FraudDetection.Api.Health;
+using FraudDetection.Api.Messaging;
 using FraudDetection.Application.Abstractions;
 using FraudDetection.Infrastructure.Persistence;
 using FraudDetection.IntegrationTests.Fakes;
@@ -9,6 +10,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace FraudDetection.IntegrationTests;
@@ -79,12 +82,27 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
         // Set environment to "Testing" so the Program.cs migration/seeding doesn't run
         builder.UseEnvironment("Testing");
+        // Windows' default EventLog provider can throw when the test process
+        // lacks permission to write the .NET Runtime event source. Tests assert
+        // HTTP responses and handler results, not Event Viewer output.
+        builder.ConfigureLogging(logging => logging.ClearProviders());
 
         if (_configureConfiguration is not null)
             builder.ConfigureAppConfiguration(_configureConfiguration);
 
         builder.ConfigureServices(services =>
         {
+            // Do not start the real Kafka response consumer in the in-process
+            // test host; the consumer's handler is covered independently with
+            // SQLite-backed application/persistence tests.
+            foreach (var hostedConsumer in services
+                         .Where(descriptor => descriptor.ServiceType == typeof(IHostedService)
+                             && descriptor.ImplementationType == typeof(KafkaTransactionEvaluatedConsumer))
+                         .ToList())
+            {
+                services.Remove(hostedConsumer);
+            }
+
             // Remove the SQL Server DbContext registration
             var descriptor = services.SingleOrDefault(
                 d => d.ServiceType == typeof(DbContextOptions<FraudDetectionDbContext>));

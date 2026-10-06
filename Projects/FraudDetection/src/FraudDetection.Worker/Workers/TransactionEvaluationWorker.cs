@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Confluent.Kafka;
-using FraudDetection.Application.Abstractions;
 using FraudDetection.Application.Events;
 using FraudDetection.Application.Features.Transactions.EvaluateTransaction;
 using FraudDetection.Domain;
@@ -16,14 +15,13 @@ namespace FraudDetection.Worker.Workers;
 ///   1. deserializes the TransactionCreatedEvent,
 ///   2. evaluates the transaction via the EvaluateTransactionHandler
 ///      (Application layer — loads the row, computes the day's accumulated
-///      value, runs the fraud rules, persists the status transition),
+///      value, and runs the fraud rules),
 ///   3. publishes the TransactionEvaluated event,
 ///   4. commits the offset.
 ///
-/// Delivery semantics (documented in ADR-058): at-least-once. The offset is
-/// committed ONLY after the evaluation is persisted and the evaluated event is
-/// published. On a crash in between, the message is redelivered — the handler
-/// is idempotent (an already-evaluated transaction replays its current state).
+/// Delivery semantics: at-least-once. The offset is committed only after the
+/// response event is published. The API applies that response and handles
+/// duplicate delivery idempotently.
 /// Processing exceptions are logged and NOT committed (retried on the next
 /// poll); unparseable poison messages are logged, committed, and skipped so a
 /// single bad message cannot wedge the consumer.
@@ -36,7 +34,6 @@ public sealed class TransactionEvaluationWorker : BackgroundService
 {
     private readonly KafkaOptions _options;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IEventPublisher _eventPublisher;
     private readonly ILogger<TransactionEvaluationWorker> _logger;
 
     /// <summary>
@@ -45,17 +42,14 @@ public sealed class TransactionEvaluationWorker : BackgroundService
     public TransactionEvaluationWorker(
         IOptions<KafkaOptions> options,
         IServiceScopeFactory scopeFactory,
-        IEventPublisher eventPublisher,
         ILogger<TransactionEvaluationWorker> logger)
     {
         Guard.AgainstNull(options, nameof(options));
         Guard.AgainstNull(scopeFactory, nameof(scopeFactory));
-        Guard.AgainstNull(eventPublisher, nameof(eventPublisher));
         Guard.AgainstNull(logger, nameof(logger));
 
         _options = options.Value;
         _scopeFactory = scopeFactory;
-        _eventPublisher = eventPublisher;
         _logger = logger;
     }
 
@@ -67,8 +61,8 @@ public sealed class TransactionEvaluationWorker : BackgroundService
             BootstrapServers = _options.BootstrapServers,
             GroupId = _options.GroupId,
             AutoOffsetReset = Enum.Parse<AutoOffsetReset>(_options.AutoOffsetReset),
-            // Manual commits: the offset is committed only after the evaluation
-            // is persisted AND TransactionEvaluated is published (at-least-once).
+            // Manual commits: the offset is committed only after
+            // TransactionEvaluated is published (at-least-once).
             EnableAutoCommit = false,
             // Dev/demo convenience: missing topics are created automatically by
             // the broker (AUTO_CREATE_TOPICS_ENABLE=true in docker-compose).
@@ -117,14 +111,16 @@ public sealed class TransactionEvaluationWorker : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    // Processing failed. Deliberately NOT committed: the message
-                    // is redelivered on the next poll — at-least-once semantics.
+                    // Rewind explicitly. Without Seek, a later successful commit
+                    // could advance past and effectively skip this failed message.
                     _logger.LogError(
                         ex,
                         "Failed to process message for transaction {TransactionExternalId} " +
-                        "at offset {Offset}; it will be retried on the next poll",
+                        "at offset {Offset}; retrying",
                         result.Message.Key,
                         result.Offset);
+                    consumer.Seek(new TopicPartitionOffset(result.TopicPartition, result.Offset));
+                    await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
                 }
             }
         }
@@ -172,11 +168,8 @@ public sealed class TransactionEvaluationWorker : BackgroundService
         // Evaluate in a per-message scope: the handler and its DbContext are
         // scoped services; the hosted service itself is a singleton.
         using var scope = _scopeFactory.CreateScope();
-        var handler = scope.ServiceProvider.GetRequiredService<EvaluateTransactionHandler>();
-
-        var evaluation = await handler.Handle(
-            new EvaluateTransactionCommand { TransactionExternalId = created.TransactionExternalId },
-            cancellationToken);
+        var handler = scope.ServiceProvider.GetRequiredService<EvaluateAndPublishTransactionHandler>();
+        var evaluation = await handler.Handle(created, cancellationToken);
 
         if (evaluation is null)
         {
@@ -190,17 +183,9 @@ public sealed class TransactionEvaluationWorker : BackgroundService
             return;
         }
 
-        await _eventPublisher.PublishAsync(
-            new TransactionEvaluatedEvent(
-                evaluation.TransactionExternalId,
-                evaluation.Status,
-                evaluation.RejectionReason),
-            cancellationToken);
-
-        // The evaluation is persisted (UpdateAsync inside the handler) and the
-        // evaluated event is published. Only now is the offset committed —
-        // at-least-once semantics (ADR-058): a crash before this point leaves
-        // the offset uncommitted and the message is redelivered (idempotent).
+        // The response is durably published before this offset is committed.
+        // If the process crashes between these operations, a duplicate response
+        // may be produced; the API's status updater applies responses idempotently.
         consumer.Commit(result);
     }
 }

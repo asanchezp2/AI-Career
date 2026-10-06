@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore FraudDetection.sln
+
+      # The solution builds at zero warnings; -warnaserror turns that into a
+      # CI-enforced policy so a new warning fails the build instead of shipping.
+      - name: Build
+        run: dotnet build FraudDetection.sln --nologo --no-restore -c Release -v q -warnaserror
+
+      - name: Test
+        run: dotnet test FraudDetection.sln --nologo --no-build -c Release --verbosity minimal --logger trx --results-directory TestResults
+
+      # Cheap syntax check of docker-compose.yml. We deliberately do NOT run
+      # `docker compose up` in CI: SQL Server + Kafka containers are far too
+      # heavy and flaky for a pull-request workflow.
+      - name: Validate docker-compose config
+        run: docker compose config --quiet
+
+      # Build both local runtime images without publishing to a paid registry.
+      - name: Build API container image
+        run: docker build --file Dockerfile --target final-api --tag fraud-detection-api:ci .
+
+      - name: Build Worker container image
+        run: docker build --file Dockerfile --target final-worker --tag fraud-detection-worker:ci .
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults
+          retention-days: 7

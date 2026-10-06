@@ -1,6 +1,6 @@
 # Fraud Detection API
 
-A production-grade transaction anti-fraud system built with **.NET 8** using **Hexagonal Architecture** + **Vertical Slice** + **Explicit CQRS**, with **Kafka**-based asynchronous evaluation.
+A portfolio implementation of a transaction anti-fraud technical challenge using **.NET 8**, **Kafka**, **Hexagonal Architecture**, **Vertical Slices**, and explicit CQRS.
 
 Every financial transaction is created through the API (state: `pending`), validated **asynchronously** by an anti-fraud microservice (a dedicated Kafka worker), and ends in `approved` or `rejected`.
 
@@ -11,7 +11,11 @@ Implements the real technical challenge: every created transaction must be valid
 | # | Rule | Rejection threshold |
 |---|------|---------------------|
 | 1 | High value | `value` > **2000** |
-| 2 | Daily accumulated (same `sourceAccountId`, UTC day) | accumulated > **20000** |
+| 2 | Daily accumulated | accumulated > **20000** |
+
+The challenge document does not define the aggregation key or time zone. This
+implementation uses the same `sourceAccountId` and UTC calendar day as an
+explicit documented assumption; the pending transaction is included in the sum.
 
 The API never evaluates rules synchronously — evaluation happens via Kafka (`TransactionCreated` → worker → `TransactionEvaluated`).
 
@@ -22,8 +26,8 @@ The API never evaluates rules synchronously — evaluation happens via Kafka (`T
 | **Domain** | Rich Domain Model | `Transaction` entity, `TransactionStatus`/`RejectionReason` enums, 2 Specifications, `FraudRuleEngine` (deterministic), Guard Pattern, Result Pattern |
 | **Application** | CQRS (explicit, no MediatR) | Commands, Validators, Handlers, Ports (`ITransactionRepository`, `IEventPublisher`), integration Events |
 | **Infrastructure** | Adapters | EF Core + SQL Server persistence, `EfTransactionRepository`, `KafkaEventPublisher` (Confluent.Kafka), `KafkaOptions` |
-| **Worker** | `FraudDetection.Worker` (new) | Anti-fraud microservice: `BackgroundService` consuming `TransactionCreated`, evaluating, persisting the new status, publishing `TransactionEvaluated` |
-| **Api** | Minimal API | `POST`/`GET` endpoints, DI composition root, middleware, Swagger |
+| **Worker** | `FraudDetection.Worker` | Anti-fraud microservice: consumes `TransactionCreated`, evaluates, and publishes `TransactionEvaluated` |
+| **API** | Minimal API + response consumer | Creates/queries transactions and consumes the worker's response to persist the final status |
 
 - **Hexagonal Architecture** (Ports & Adapters) — domain is pure; Kafka and EF Core plug in via interfaces
 - **Vertical Slices** — code organized by feature, not by layer
@@ -40,9 +44,12 @@ POST /api/v1/transactions  →  Transaction persisted (pending)  →  Kafka: tra
                                                                           ▼
                                           FraudDetection.Worker  ──  evaluates (specifications)
                                                                           │
-      GET /api/v1/transactions/{id}  ←  SQL Server  ←  status persisted (approved/rejected)
-                                                                          │
-                                                          Kafka: transaction-evaluated (audit)
+                           Kafka: transaction-evaluated  ◀────────────────┘
+                                      │
+                                      ▼
+                    API response consumer persists the status
+                                      │
+      GET /api/v1/transactions/{id}  ←  SQL Server  ←  approved/rejected
 ```
 
 ## Technologies
@@ -56,7 +63,7 @@ POST /api/v1/transactions  →  Transaction persisted (pending)  →  Kafka: tra
 | Testing | xUnit (unit + integration) |
 | API Docs | OpenAPI / Swagger (all environments — public portfolio choice, ADR-059) |
 | Containerization | Docker + docker-compose (SQL Server 2022 + Kafka + API + Worker) |
-| CI/CD | GitHub Actions (path-filtered workflow) |
+| CI/CD | GitHub Actions (build, tests, Compose validation, API/Worker image builds) |
 
 ## Project Structure
 
@@ -66,7 +73,8 @@ FraudDetection/
 │   ├── FraudDetection.Api/                    # HTTP Adapter (Minimal API)
 │   │   ├── Endpoints/TransactionsEndpoint.cs  # POST /api/v1/transactions + GET /{id}
 │   │   ├── Middleware/                        # ExceptionHandling (RFC 7807) + SecurityHeaders
-│   │   ├── Program.cs                         # Composition root (producer side only)
+│   │   ├── Messaging/                         # TransactionEvaluated response consumer
+│   │   ├── Program.cs                         # API composition root
 │   │   └── appsettings.json                   # Kafka, RateLimit, ConnectionStrings
 │   ├── FraudDetection.Worker/                 # Anti-fraud microservice (NEW, .NET 8 Worker)
 │   │   ├── Workers/TransactionEvaluationWorker.cs  # Kafka consumer BackgroundService
@@ -98,7 +106,11 @@ FraudDetection/
 
 ## Current Status
 
-Build: **0 errors, 0 warnings**. Tests: **152 total, all passing** — 111 unit + 41 integration (verified with `dotnet build` / `dotnet test`).
+**Checkpoint validation (2026-10-02):** `dotnet restore` and Release build pass
+(0 warnings, 0 errors); unit tests pass (123/123); integration tests pass
+(45/45). `docker compose config --quiet` passes. The Docker daemon is not
+running in the current environment, so container image builds and the local
+end-to-end scenarios have not yet been executed here.
 
 ### Implemented
 
@@ -107,18 +119,19 @@ Build: **0 errors, 0 warnings**. Tests: **152 total, all passing** — 111 unit 
 - Specification Pattern: `HighValueSpecification` (value > 2000) and `DailyAccumulatedSpecification` (accumulated > 20000) — thresholds are constants in the Domain specs
 - `FraudRuleEngine`: deterministic — HighValue first, then DailyAccumulated, else Approved; returns the rejection reason
 - Endpoints: `POST /api/v1/transactions` (201 + Location + pending), `GET /api/v1/transactions/{id}` (200/404 ProblemDetails), `GET /api/v1/version`, `GET /health` (alias of readiness), `GET /health/live` (liveness), `GET /health/ready` (readiness — SQL Server + Kafka, 200/503 with per-dependency detail)
-- Kafka: `TransactionCreated` / `TransactionEvaluated` topics, JSON serialization (camelCase, lowercase enums), message key = transaction external ID, at-least-once consumer with idempotent replay, poison-message handling
-- Anti-fraud worker: `FraudDetection.Worker` — subscribes, evaluates via the Application layer, persists the new status, publishes `TransactionEvaluated`, commits offsets explicitly
+- Kafka request/response: `TransactionCreated` / `TransactionEvaluated`, JSON (camelCase, lowercase enums), transaction ID as key, manual offsets, retry for transient errors, and log-and-skip for permanent poison messages
+- Anti-fraud worker: consumes, evaluates, and publishes `TransactionEvaluated`; the API response consumer applies and persists the state only after receiving the event
+- Response idempotency: an identical repeated terminal result is accepted without rewriting the row; a conflicting response never overwrites a terminal state
 - EF Core 8 + SQL Server: single fresh `InitialCreate` migration; `(SourceAccountId, CreatedAt)` index for the daily-accumulated aggregation; status/reason stored as lowercase strings
 - ProblemDetails (RFC 7807) error contract everywhere (`ExceptionHandlingMiddleware` + 404 responses)
 - Rate limiting (fixed window, config-driven `RateLimit`) on the create endpoint, `429` ProblemDetails + `Retry-After`
-- Security headers + HSTS, structured logging, health probes via the HealthChecks framework (liveness vs readiness, ADR-059), Swagger (all environments), Docker + docker-compose (4 services), GitHub Actions CI, Architecture Decision Log (ADR-001 → ADR-059)
+- Security headers + HSTS, structured logging, health probes via the HealthChecks framework (liveness vs readiness, ADR-059), Swagger (all environments), Docker + docker-compose, GitHub Actions CI, Architecture Decision Log (ADR-001 → ADR-060)
 
 ### Intentionally Deferred
 
 - Authentication / Authorization — documented in ADR-041 (portfolio scope)
 - Transactional outbox for exactly-once publishing — documented production path in ADR-058
-- Dead-letter topic for poison messages — poison messages are logged/committed/skipped (ADR-058)
+- Dead-letter topic for poison messages — invalid messages are logged/committed/skipped; transient processing failures seek/retry (ADR-060)
 - Explicit Kafka topic management (compose uses `AUTO_CREATE_TOPICS_ENABLE=true`) — ADR-053
 - OpenTelemetry metrics and tracing — structured logs + health endpoints cover current needs
 
@@ -130,6 +143,7 @@ Build: **0 errors, 0 warnings**. Tests: **152 total, all passing** — 111 unit 
 "Kafka": {
   "BootstrapServers": "localhost:9092",
   "GroupId": "fraud-detection-worker",
+  "EvaluationResultGroupId": "fraud-detection-api-status-updater",
   "AutoOffsetReset": "Earliest",
   "Topics": {
     "TransactionCreated": "transaction-created",
@@ -318,8 +332,9 @@ curl "http://localhost:8080/api/v1/version" # build version metadata (commit whe
 
 ## Known Limitations
 
-- **At-least-once delivery**: duplicate `TransactionEvaluated` messages are possible after crash-redelivery; the worker is idempotent, downstream consumers must tolerate duplicates (ADR-058)
+- **At-least-once delivery**: a crash after publishing the response but before committing the input offset can produce duplicate evaluations. The API applies identical responses idempotently and never overwrites an already terminal transaction; conflicting duplicates are logged and skipped.
 - **Persist-then-publish** in the create flow: a publish failure surfaces as a 500 while the row stays pending; transactional outbox is the documented production path (ADR-058)
+- A failed worker evaluation or API response persistence is retried by seeking back to the failed Kafka offset; permanently invalid or uncorrelated response messages are logged and skipped, so they may leave a transaction pending for operator follow-up.
 - Shared database between API and Worker — pragmatic single-deployment choice, documented in ADR-054 (production would split)
 - Integration tests use SQLite (file-based), not SQL Server — performance numbers are indicative only
 - **No automated Kafka E2E test**: CI runs unit + integration tests with fake publisher/repository — a full Api → Kafka → Worker → DB round trip is not exercised via Testcontainers and must be validated manually against the running compose stack (see "Test the async flow end to end" below)
@@ -333,9 +348,17 @@ curl "http://localhost:8080/api/v1/version" # build version metadata (commit whe
 |----------|-------------|
 | [Architecture](ARCHITECTURE.md) | Full architecture deep-dive with the async flow |
 | [Challenge](CHALLENGE.md) | The real challenge requirements (3 states, 2 fraud rules, Kafka async flow) |
-| [Decisions](DECISIONS.md) | Architecture Decision Log (ADR-001 through ADR-058) |
-| [KnowledgeBase](../../KnowledgeBase/Architecture/) | Educational reference for patterns used |
+| [Decisions](DECISIONS.md) | Architecture Decision Log (ADR-001 through ADR-060) |
+| [Challenge traceability](CHALLENGE_TRACEABILITY.md) | Source requirement → implementation → verification matrix |
+| [Portfolio repository reconciliation](docs/portfolio-reconciliation.md) | Standalone vs AI-Career copy and safe publication sequence |
+| [DevOps checkpoint](docs/devops/checkpoint-status.md) | Verified progress and remaining hands-on evidence |
+| [Git/GitHub labs](docs/devops/git-github-labs.md) | Safe branch, pull request, review, and CI practice |
+| [Linux troubleshooting](docs/devops/linux-troubleshooting.md) | Local incident scenarios and evidence-first response format |
+| [Interview talk track](docs/interview/portfolio-talk-track.md) | Demo sequence and Spanish/English interview answers |
+| [InmoInsight beta audit](docs/inmoinsight-beta-audit.md) | Read-only beta blockers and zero-cost launch gate |
+| [Deploy lab roadmap](deploy/README.md) | Local Docker demo and later DevOps phases |
+| [KnowledgeBase](https://github.com/asanchezp2/AI-Career/tree/main/KnowledgeBase/Architecture/) | Educational reference for patterns used |
 
 ## CI/CD
 
-The repository-level GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push and pull requests to `main`, path-filtered to `Projects/FraudDetection/**` (covers the Worker): restore, Release build of the solution (all 5 src projects + 2 test projects), full test suite, and test-result artifact upload.
+The repository-level GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push and pull requests to `main`: restore, Release build with warnings treated as errors, full tests, Compose configuration validation, local API and Worker image builds, and test-result artifact upload. It does not publish to a container registry or deploy paid infrastructure.

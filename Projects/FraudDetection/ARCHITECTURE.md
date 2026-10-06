@@ -169,7 +169,7 @@ There are no interface-based primary ports — the Minimal API delegate invokes 
 
 | Port | Purpose | Implementations |
 |------|---------|-----------------|
-| `ITransactionRepository` | Persists transactions; reads by ID; computes the day's accumulated value; persists status transitions | `EfTransactionRepository` (SQL Server; duplicate-key translation; `AsNoTracking` reads) |
+| `ITransactionRepository` | Persists transactions and API-applied status updates; reads by ID; computes the day's accumulated value | `EfTransactionRepository` (SQL Server; duplicate-key translation; `AsNoTracking` reads) |
 | `IEventPublisher` | Publishes integration events to Kafka | `KafkaEventPublisher` (Confluent.Kafka producer, JSON, keyed by transaction ID) |
 
 ### Port Location
@@ -181,7 +181,7 @@ Application/Abstractions/IEventPublisher.cs
 
 Ports are defined in the **Application Layer** because they represent capabilities the application needs from the outside world. The Domain defines business rules; the Application defines what it needs from infrastructure. Kafka is fully hidden behind `IEventPublisher` (ADR-053).
 
-## The Async Flow (Api → Kafka → Worker → DB)
+## The Async Request/Response Flow (API → Kafka → Worker → API)
 
 ```
 ┌──────────┐   POST /api/v1/transactions   ┌────────────────────────────────┐
@@ -198,32 +198,33 @@ Ports are defined in the **Application Layer** because they represent capabiliti
                                                           ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  FraudDetection.Worker (anti-fraud microservice)                             │
-│  TransactionEvaluationWorker (BackgroundService)                             │
-│    consume → EvaluateTransactionHandler:                                      │
-│      1. repository.GetByIdAsync(id)                                           │
-│      2. repository.GetDailyAccumulatedAsync(sourceAccountId, day)             │
-│         (includes this transaction — it is already persisted as Pending)      │
-│      3. FraudRuleEngine.Evaluate(tx, accumulated)                             │
-│         HighValue (>2000)?        → Rejected(HighValue)                       │
-│         DailyAccumulated (>20000)?→ Rejected(DailyAccumulated)                │
-│         else                      → Approved                                  │
-│      4. tx.Approve() / tx.Reject(reason)   ← domain invariants                │
-│      5. repository.UpdateAsync(tx)                                            │
-│      6. publish TransactionEvaluated → topic "transaction-evaluated"          │
-│      7. consumer.Commit(offset)          ← at-least-once (ADR-058)            │
-└───────┬──────────────────────────────────────────────────────────────────────┘
-        │ SQL Server (shared DB — pragmatic choice, ADR-054)
-        ▼
+│  consume → EvaluateTransactionHandler:                                      │
+│    1. read transaction + same-source-account UTC-day sum                     │
+│    2. run the two fraud specifications                                       │
+│    3. publish TransactionEvaluated (decision + rejection reason)              │
+│    4. commit transaction-created offset after response publication            │
+│       (at-least-once; duplicates are possible)                               │
+└───────────────────────────────────────────────┬──────────────────────────────┘
+                                                │ Kafka: transaction-evaluated
+                                                ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  FraudDetection.Api — GET /api/v1/transactions/{id}                          │
-│  reads the CURRENT state: { transactionExternalId, createdAt, status,        │
-│  rejectionReason? }  — 400/404/429 RFC 7807 ProblemDetails everywhere        │
+│  FraudDetection.Api — KafkaTransactionEvaluatedConsumer                      │
+│    1. validate response and key                                              │
+│    2. load transaction; apply Approved/Rejected through domain transition   │
+│    3. persist status and rejection reason                                    │
+│    4. commit response offset only after persistence                          │
+└───────────────────────────────────────────────┬──────────────────────────────┘
+                                                │ SQL Server (shared DB)
+                                                ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  GET /api/v1/transactions/{id} reads the persisted current state             │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key design points:**
 - The create endpoint NEVER evaluates fraud — the challenge mandates async messaging with no synchronous evaluation in the request (ADR-058)
-- Delivery is **at-least-once** with an idempotent consumer: offsets are committed only after persist+publish; redelivery replays the current state instead of re-evaluating, and duplicate `TransactionEvaluated` messages are tolerated downstream (ADR-058)
+- The worker publishes a decision; only the API response consumer changes the persisted state. The API commits the response offset after persistence, and identical duplicate responses are idempotent.
+- Both Kafka consumers explicitly seek back to failed offsets after transient processing errors. Invalid or uncorrelated poison messages are logged and skipped to avoid wedging the partition.
 - `TransactionCreatedEvent` carries the full creation snapshot; the worker only needs the ID (it re-reads the row for the state transition and day computation)
 
 ## Domain Layer
@@ -342,7 +343,7 @@ Lives in **Application** (not in the Worker project) so the whole evaluation log
   - `AddAsync` — insert; duplicates translate to `TransactionConflictException` (defensive — IDs are server-generated)
   - `GetByIdAsync(Guid)` — `AsNoTracking`
   - `GetDailyAccumulatedAsync(Guid, DateOnly)` — `SUM(Value)` over `[midnight UTC, midnight UTC + 1 day)` (ADR-057)
-  - `UpdateAsync` — attach + save (worker is the only status writer; no concurrency token — documented in ADR-054)
+  - `UpdateAsync` — attach + save (the API response consumer applies status updates; no concurrency token — documented in ADR-054)
 - One fresh `InitialCreate` migration (`20260813020511`); `FraudDetectionDbContextFactory` (design-time) keeps `dotnet ef` independent of the API host (ADR-055)
 - Status/reason converters store LOWERCASE strings, matching the JSON wire format
 
@@ -351,7 +352,7 @@ Lives in **Application** (not in the Worker project) so the whole evaluation log
 - `KafkaEventPublisher : IEventPublisher` — producer with `Acks.All` + idempotence; JSON via `KafkaJsonSerializerOptions` (camelCase, lowercase enums); **message key = transaction external ID** → per-transaction partitioning/ordering; `MessageTimeoutMs = 10s` dev fail-fast
 - Topics: `transaction-created`, `transaction-evaluated` (configurable `Kafka:Topics:*`)
 - `KafkaOptions` + `KafkaOptionsValidator` (Infrastructure) — validated at startup in both hosts
-- The consumer lives in the **Worker** project (the only consumer today): `Confluent.Kafka` consumer with `GroupId`, `AutoOffsetReset`, manual commits, poison-message skip, and per-message DI scopes (a `BackgroundService` is a singleton and must not hold a scoped `DbContext`)
+- Two independent consumers: the Worker consumes `transaction-created`; the API consumes `transaction-evaluated` with its own group. Both use manual commits, seek/retry for transient processing errors, poison-message skip, and per-message DI scopes (a `BackgroundService` is a singleton and must not hold a scoped `DbContext`). The API commits only after persistence.
 
 ## Configuration
 
@@ -360,15 +361,15 @@ Both hosts (Api `appsettings.json` + Worker `appsettings.json`) bind the same se
 | Section | Used by | Purpose |
 |---------|---------|---------|
 | `ConnectionStrings:DefaultConnection` | Api + Worker | SQL Server connection string (`(localdb)` in dev; the `sqlserver` service in compose) |
-| `Kafka` | Api + Worker | `BootstrapServers`, `GroupId`, `AutoOffsetReset`, `Topics:{TransactionCreated,TransactionEvaluated}` — bound to `KafkaOptions`, validated at startup by `KafkaOptionsValidator` (fail-fast, ADR-053) |
+| `Kafka` | Api + Worker | `BootstrapServers`, `GroupId`, `EvaluationResultGroupId`, `AutoOffsetReset`, `Topics:{TransactionCreated,TransactionEvaluated}` — bound to `KafkaOptions`, validated at startup by `KafkaOptionsValidator` (fail-fast, ADR-053) |
 | `RateLimit` | Api | `PermitLimit` (30), `WindowSeconds` (60) for the fixed-window policy `create-transaction` (ADR-046) |
 | `AutoMigrate` | Api + Worker | When `true` (or in Development), pending migrations are applied at startup — compose dev/portfolio choice (ADR-054) |
 
 ## DI Wiring
 
-- **Api** (`Program.cs`): `FraudDetectionDbContext` (scoped, SQL Server) → `ITransactionRepository` (scoped `EfTransactionRepository`) → `IEventPublisher` (singleton `KafkaEventPublisher`) → `CreateTransactionValidator` + `CreateTransactionHandler` (scoped). `KafkaOptions` and `RateLimitOptions` use `Configure<>` + `ValidateOnStart`; the fixed-window limiter policy is registered via `AddRateLimiter`.
-- **Worker** (`Program.cs`): same persistence + publisher registrations and Kafka validation; `FraudRuleEngine` (singleton, stateless), `ITransactionRepository` + `EvaluateTransactionHandler` (scoped), hosted `TransactionEvaluationWorker`. Because a `BackgroundService` is a singleton, scoped dependencies are resolved **per message** via `IServiceScopeFactory` — the worker must never hold a scoped `DbContext`.
-- Both are independent composition roots with the same dependency direction (Api/Worker → Application → Domain; Infrastructure implements the ports). The Api is the producer side only; the Worker is the only consumer.
+- **Api** (`Program.cs`): `FraudDetectionDbContext` (scoped, SQL Server) → `ITransactionRepository` (scoped `EfTransactionRepository`) → `IEventPublisher` (singleton `KafkaEventPublisher`) → create and apply-evaluation handlers (scoped); hosted `KafkaTransactionEvaluatedConsumer`. `KafkaOptions` and `RateLimitOptions` use `Configure<>` + `ValidateOnStart`.
+- **Worker** (`Program.cs`): same persistence + publisher registrations and Kafka validation; `FraudRuleEngine` (singleton, stateless), evaluation/publish handler (scoped), hosted `TransactionEvaluationWorker`. It computes and publishes the result but does not modify transaction state.
+- Both are independent composition roots (Api/Worker → Application → Domain; Infrastructure implements the ports). The API produces `TransactionCreated`, consumes `TransactionEvaluated`, and persists the terminal state. Each consumer resolves scoped dependencies per message.
 
 ## Request Lifecycle (API)
 
@@ -412,7 +413,7 @@ Exactly one migration (ADR-055): `InitialCreate` — `Transactions` table + `IX_
 
 ### Integration Tests
 
-Tests use **SQLite file-based** (temporary `.db` file, not a shared `:memory:` connection) so each `DbContext` opens its own connection and SQLite's locking/busy-timeout semantics apply for concurrency tests. The ephemeral schema is built with `EnsureCreated` (migrations are SQL Server-targeted — ADR-049). Suite status: **152 tests passing (111 unit + 41 integration), 0 warnings** (verified with `dotnet build` / `dotnet test`). The daily-accumulated `SUM` projects to `double` for SQLite portability (cast back to `decimal` — see the repository remarks). A full Api → Kafka → Worker → DB round trip is NOT automated via Testcontainers in CI: the worker evaluation is covered at handler level with fakes, and the end-to-end flow is validated manually against the compose stack (see README).
+Tests use **SQLite file-based** (temporary `.db` file, not a shared `:memory:` connection) so each `DbContext` opens its own connection and SQLite's locking/busy-timeout semantics apply for concurrency tests. The ephemeral schema is built with `EnsureCreated` (migrations are SQL Server-targeted — ADR-049). The current solution test counts and outcomes are recorded after validation. The daily-accumulated `SUM` projects to `double` for SQLite portability (cast back to `decimal` — see the repository remarks). A full Api → Kafka → Worker → DB round trip is not automated with Testcontainers in CI; handler/persistence paths have automated coverage and Compose provides the local manual E2E demo.
 
 ## Error Handling (ProblemDetails / RFC 7807)
 
@@ -441,12 +442,12 @@ Tests use **SQLite file-based** (temporary `.db` file, not a shared `:memory:` c
 
 ### Implemented (What Works)
 
-- Async anti-fraud flow: API (201 + pending) → Kafka `transaction-created` → Worker evaluates → persists approved/rejected → publishes `transaction-evaluated`
+- Async anti-fraud flow: API (201 + pending) → Kafka `transaction-created` → Worker evaluates and publishes `transaction-evaluated` → API consumes the response and persists approved/rejected
 - Exactly three states; exactly two rejection rules with constants in Domain specs
 - GET returns current state + rejection reason audit (decision audit = `RejectionReason`, ADR-056)
 - At-least-once delivery with idempotent consumer replay and poison-message handling (ADR-058)
 - Rate limiting, ProblemDetails everywhere, security headers, health probes, structured logging
-- Production build 0 errors / 0 warnings; **152 tests passing (111 unit + 41 integration)**; fresh single migration; docker-compose with Kafka
+- Release build and test results are recorded after the current changes are validated; fresh single migration; docker-compose with Kafka
 
 ### Intentionally Deferred
 
@@ -463,9 +464,9 @@ Tests use **SQLite file-based** (temporary `.db` file, not a shared `:memory:` c
 
 | Risk | Note |
 |------|------|
-| At-least-once duplicates | Duplicate `TransactionEvaluated` possible after crash-redelivery; workers are idempotent, consumers must tolerate duplicates (ADR-058) |
+| At-least-once duplicates | Duplicate `TransactionEvaluated` possible after crash-redelivery; the API applies identical responses idempotently and rejects conflicting terminal results (ADR-060) |
 | Lost message window (persist-then-publish) | Publish failure → 500 + Pending row; outbox is the production fix (ADR-058) |
-| No concurrency token on Transaction | Worker is the only status writer; last-write-wins (ADR-054) |
+| No concurrency token on Transaction | API response consumer is the status writer; conflicting terminal responses fail validation and are logged/skipped (ADR-054, ADR-060) |
 | UTC day boundaries | Server-side rule semantics; documented (ADR-057) |
 | Kafka E2E round trip not automated | No Testcontainers/broker test in CI — the real Api → Kafka → Worker → DB flow is validated manually via docker compose (README); worker logic is unit/integration-tested at handler level |
 

@@ -24,6 +24,9 @@ public sealed class KafkaOptionsValidator : IValidateOptions<KafkaOptions>
         if (string.IsNullOrWhiteSpace(options.GroupId))
             errors.Add($"{nameof(KafkaOptions.GroupId)} must not be empty.");
 
+        if (string.IsNullOrWhiteSpace(options.EvaluationResultGroupId))
+            errors.Add($"{nameof(KafkaOptions.EvaluationResultGroupId)} must not be empty.");
+
         if (!AllowedAutoOffsetResetValues.Contains(options.AutoOffsetReset))
             errors.Add(
                 $"{nameof(KafkaOptions.AutoOffsetReset)} must be one of: " +

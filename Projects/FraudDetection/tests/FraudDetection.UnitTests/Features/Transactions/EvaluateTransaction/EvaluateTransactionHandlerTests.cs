@@ -56,7 +56,7 @@ public class EvaluateTransactionHandlerTests
     }
 
     [Fact]
-    public async Task Handle_HighValueTransaction_RejectsAndPersists()
+    public async Task Handle_HighValueTransaction_ReturnsDecisionWithoutPersistingStatus()
     {
         var transaction = CreatePendingTransaction(2500m);
         var repository = new FakeTransactionRepository { DailyAccumulated = 1000m };
@@ -68,13 +68,13 @@ public class EvaluateTransactionHandlerTests
 
         Assert.Equal(TransactionStatus.Rejected, result!.Status);
         Assert.Equal(RejectionReason.HighValue, result.RejectionReason);
-        Assert.Contains("UpdateAsync", repository.OperationLog);
-        Assert.Equal(TransactionStatus.Rejected, Assert.Single(repository.Stored).Status);
-        Assert.Equal(RejectionReason.HighValue, Assert.Single(repository.Stored).RejectionReason);
+        Assert.DoesNotContain("UpdateAsync", repository.OperationLog);
+        Assert.Equal(TransactionStatus.Pending, Assert.Single(repository.Stored).Status);
+        Assert.Null(Assert.Single(repository.Stored).RejectionReason);
     }
 
     [Fact]
-    public async Task Handle_DailyAccumulatedExceeded_RejectsAndPersists()
+    public async Task Handle_DailyAccumulatedExceeded_ReturnsDecisionWithoutPersistingStatus()
     {
         var transaction = CreatePendingTransaction(100m);
         var repository = new FakeTransactionRepository { DailyAccumulated = 25000m };
@@ -86,11 +86,12 @@ public class EvaluateTransactionHandlerTests
 
         Assert.Equal(TransactionStatus.Rejected, result!.Status);
         Assert.Equal(RejectionReason.DailyAccumulated, result.RejectionReason);
-        Assert.Contains("UpdateAsync", repository.OperationLog);
+        Assert.DoesNotContain("UpdateAsync", repository.OperationLog);
+        Assert.Equal(TransactionStatus.Pending, Assert.Single(repository.Stored).Status);
     }
 
     [Fact]
-    public async Task Handle_UnderBothLimits_ApprovesAndPersists()
+    public async Task Handle_UnderBothLimits_ReturnsApprovalWithoutPersistingStatus()
     {
         var transaction = CreatePendingTransaction(100m);
         var repository = new FakeTransactionRepository { DailyAccumulated = 1000m };
@@ -102,8 +103,8 @@ public class EvaluateTransactionHandlerTests
 
         Assert.Equal(TransactionStatus.Approved, result!.Status);
         Assert.Null(result.RejectionReason);
-        Assert.Contains("UpdateAsync", repository.OperationLog);
-        Assert.Equal(TransactionStatus.Approved, Assert.Single(repository.Stored).Status);
+        Assert.DoesNotContain("UpdateAsync", repository.OperationLog);
+        Assert.Equal(TransactionStatus.Pending, Assert.Single(repository.Stored).Status);
         Assert.Null(Assert.Single(repository.Stored).RejectionReason);
     }
 

@@ -63,6 +63,7 @@ services:
       ConnectionStrings__DefaultConnection: "Server=sqlserver;Database=FraudDetectionDb;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Your_Strong_Passw0rd!};TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
       KAFKA__BOOTSTRAPSERVERS: "kafka:29092"
       KAFKA__GROUPID: "fraud-detection-worker"
+      KAFKA__EVALUATIONRESULTGROUPID: "fraud-detection-api-status-updater"
       KAFKA__AUTOOFFSETRESET: "Earliest"
       KAFKA__TOPICS__TRANSACTIONCREATED: "transaction-created"
       KAFKA__TOPICS__TRANSACTIONEVALUATED: "transaction-evaluated"
@@ -86,8 +87,9 @@ services:
         condition: service_healthy
 
   # Anti-fraud worker — consumes TransactionCreated from Kafka, evaluates the
-  # transaction (specifications over the shared DB), persists the new status,
-  # and publishes TransactionEvaluated. Starts after Kafka AND the API are
+  # transaction (specifications over the shared DB), and publishes the
+  # TransactionEvaluated response. The API consumes that response and persists
+  # the status. Starts after Kafka AND the API are
   # healthy (the API runs the migrations that create the shared schema — the
   # migration runs BEFORE the API starts listening, so the liveness probe
   # becoming healthy already guarantees the schema exists; ADR-059).
@@ -102,6 +104,7 @@ services:
       ConnectionStrings__DefaultConnection: "Server=sqlserver;Database=FraudDetectionDb;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Your_Strong_Passw0rd!};TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
       KAFKA__BOOTSTRAPSERVERS: "kafka:29092"
       KAFKA__GROUPID: "fraud-detection-worker"
+      KAFKA__EVALUATIONRESULTGROUPID: "fraud-detection-api-status-updater"
       KAFKA__AUTOOFFSETRESET: "Earliest"
       KAFKA__TOPICS__TRANSACTIONCREATED: "transaction-created"
       KAFKA__TOPICS__TRANSACTIONEVALUATED: "transaction-evaluated"

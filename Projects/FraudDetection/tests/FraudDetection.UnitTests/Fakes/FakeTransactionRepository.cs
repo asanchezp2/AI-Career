@@ -36,6 +36,9 @@ public sealed class FakeTransactionRepository : ITransactionRepository
     /// </summary>
     public Exception? AddException { get; set; }
 
+    /// <summary>When set, UpdateAsync throws to model a transient persistence failure.</summary>
+    public Exception? UpdateException { get; set; }
+
     public IReadOnlyList<string> OperationLog => _operationLog;
 
     public IReadOnlyCollection<Transaction> Stored => _store.Values;
@@ -70,6 +73,10 @@ public sealed class FakeTransactionRepository : ITransactionRepository
     public Task UpdateAsync(Transaction transaction, CancellationToken cancellationToken = default)
     {
         _operationLog.Add(nameof(UpdateAsync));
+
+        if (UpdateException is not null)
+            throw UpdateException;
+
         _store[transaction.TransactionExternalId] = transaction;
         return Task.CompletedTask;
     }

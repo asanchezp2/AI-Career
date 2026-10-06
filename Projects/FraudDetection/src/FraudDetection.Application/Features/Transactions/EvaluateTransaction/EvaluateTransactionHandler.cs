@@ -21,8 +21,11 @@ namespace FraudDetection.Application.Features.Transactions.EvaluateTransaction;
 ///   4. compute the day's accumulated value for the source account (INCLUDING
 ///      this transaction, which is already persisted as Pending — ADR-057),
 ///   5. run the fraud rules via FraudRuleEngine,
-///   6. apply the recommended status through domain behavior, persist it, and
-///      return the result.
+///   6. return the recommended status for the Worker to publish.
+///
+/// The worker does not persist the status. The API applies the returned
+/// TransactionEvaluated event so the response message is the state-changing
+/// contract required by the challenge.
 /// </summary>
 public sealed class EvaluateTransactionHandler
 {
@@ -92,44 +95,15 @@ public sealed class EvaluateTransactionHandler
 
         var evaluation = _engine.Evaluate(transaction, dailyAccumulated);
 
-        var statusResult = ApplyRecommendedStatus(transaction, evaluation);
-        if (statusResult.IsFailure)
-        {
-            // A transition failure here is a programming error: the transaction
-            // was loaded as Pending and the engine only recommends Pending-exit
-            // statuses. Fail loudly rather than silently dropping the message.
-            _logger.LogError(
-                "Failed to apply recommended status {Status} to transaction {TransactionExternalId}: {Error}",
-                evaluation.RecommendedStatus,
-                transaction.TransactionExternalId,
-                statusResult.Error);
-            throw new InvalidOperationException(statusResult.Error);
-        }
-
-        await _transactionRepository.UpdateAsync(transaction, cancellationToken);
-
         _logger.LogInformation(
-            "Transaction {TransactionExternalId} evaluated: {Status}{RejectionReason}",
+            "Transaction {TransactionExternalId} evaluated: recommended status {Status}{RejectionReason}",
             transaction.TransactionExternalId,
-            transaction.Status,
-            transaction.RejectionReason is not null ? $" ({transaction.RejectionReason})" : string.Empty);
+            evaluation.RecommendedStatus,
+            evaluation.RejectionReason is not null ? $" ({evaluation.RejectionReason})" : string.Empty);
 
         return new EvaluateTransactionResult(
             transaction.TransactionExternalId,
-            transaction.Status,
-            transaction.RejectionReason);
-    }
-
-    /// <summary>
-    /// Applies the engine's recommended status to the transaction using domain behavior.
-    /// </summary>
-    private static Result ApplyRecommendedStatus(Transaction transaction, FraudRuleEngineResult evaluation)
-    {
-        return evaluation.RecommendedStatus switch
-        {
-            TransactionStatus.Approved => transaction.Approve(),
-            TransactionStatus.Rejected => transaction.Reject(evaluation.RejectionReason!.Value),
-            _ => Result.Failure($"Invalid recommended status: {evaluation.RecommendedStatus}")
-        };
+            evaluation.RecommendedStatus,
+            evaluation.RejectionReason);
     }
 }

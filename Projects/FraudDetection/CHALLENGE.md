@@ -1,10 +1,8 @@
 # Fraud Detection API — Reto técnico real
 
-> **Nota histórica:** este archivo fue originalmente una transcripción errónea del
-> reto (risk score, estado *Under Review*, reglas de blacklist/velocity/geographic y
-> el endpoint `/api/v1/transactions/analyze`). El reto REAL está verificado contra
-> `Challenge_BE-LT.docx` y se documenta abajo; la reconstrucción completa y sus
-> decisiones están en `DECISIONS.md` (ADR-051 → ADR-058) y `OPENCODE_RETURN.md`.
+> Especificación reconstruida del documento original `Challenge BE-LT.docx`.
+> La matriz de trazabilidad está en `CHALLENGE_TRACEABILITY.md`; el documento
+> original se mantiene fuera del repositorio.
 
 ## Objetivo del negocio
 
@@ -29,21 +27,27 @@ No existe estado *Under Review*.
 | # | Regla | Umbral de rechazo |
 |---|-------|-------------------|
 | 1 | High value | `value` > **2000** |
-| 2 | Daily accumulated (mismo `sourceAccountId`, día UTC) | acumulado > **20000** |
+| 2 | Daily accumulated | acumulado > **20000** |
 
-Ambas reglas rechazan (no hay reglas "de review"). Precedencia documentada:
-`HighValue` se evalúa primero (ADR-057).
+Ambas reglas rechazan. El documento original no define la clave de agregación ni
+la zona horaria. Para esta implementación se eligió explícitamente agrupar por
+`sourceAccountId` y día UTC, incluyendo la transacción evaluada. Es una
+interpretación documentada, no un detalle textual del reto.
 
 ### Flujo asíncrono
 
 ```
-POST /api/v1/transactions → row persistido (pending) → Kafka: transaction-created
-                                                                │
-                                                                ▼
-                                FraudDetection.Worker (evaluación) → persiste estado
-                                                                │
-        GET /api/v1/transactions/{id} ← SQL Server ←             │
-                                        Kafka: transaction-evaluated (audit)
+POST /api/v1/transactions → persistida (pending) → Kafka: transaction-created
+                                                       │
+                                                       ▼
+                                      FraudDetection.Worker evalúa
+                                                       │
+                       Kafka: transaction-evaluated ───┘
+                                                       │
+                                                       ▼
+                                  API consume y actualiza el estado
+                                                       │
+GET /api/v1/transactions/{id} ← SQL Server ← approved/rejected
 ```
 
 No hay evaluación en el request: el API nunca aplica las reglas de forma síncrona.
@@ -74,9 +78,11 @@ No hay evaluación en el request: el API nunca aplica las reglas de forma síncr
 
 - .NET 8, ASP.NET Core Web API + Worker (host de consola), Kafka (Confluent.Kafka), EF Core 8 + SQL Server
 - Hexagonal Architecture + Vertical Slice + CQRS explícito (sin MediatR), Specification/Guard/Result
-- Entrega asíncrona sobre Kafka: at-least-once, consumer idempotente (ADR-058)
+- Respuesta asíncrona sobre Kafka: el worker publica la evaluación y la API la aplica; entrega at-least-once e idempotencia en la transición (ADR-060)
+- Base de datos: elección libre según el reto; esta implementación usa SQL Server. Kafka es obligatorio.
 
 ## Fuente de verdad
 
-- `Challenge_BE-LT.docx` — documento original del reto (referenciado en `OPENCODE_RETURN.md`)
-- `DECISIONS.md` — ADR-051 → ADR-058 (reconstrucción y decisiones técnicas)
+- `Challenge BE-LT.docx` — documento original proporcionado por el usuario, fuera del repositorio
+- `CHALLENGE_TRACEABILITY.md` — requisito → implementación → prueba
+- `DECISIONS.md` — ADR-051 → ADR-060 (reconstrucción y decisiones técnicas)

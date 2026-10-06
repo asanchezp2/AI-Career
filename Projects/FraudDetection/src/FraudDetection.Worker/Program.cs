@@ -12,7 +12,7 @@ var builder = Host.CreateApplicationBuilder(args);
 
 // Persistence — the Worker shares the FraudDetection database with the API
 // (pragmatic single-deployment choice, documented in ADR-054). It reads
-// pending transactions, applies the evaluation, and persists the new status.
+// pending transactions to evaluate them; the API persists the returned status.
 builder.Services.AddDbContext<FraudDetectionDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -38,6 +38,7 @@ builder.Services.AddSingleton<FraudRuleEngine>();
 // handler inside a fresh scope per message.
 builder.Services.AddScoped<ITransactionRepository, EfTransactionRepository>();
 builder.Services.AddScoped<EvaluateTransactionHandler>();
+builder.Services.AddScoped<EvaluateAndPublishTransactionHandler>();
 
 // The anti-fraud consumer (BackgroundService).
 builder.Services.AddHostedService<TransactionEvaluationWorker>();
