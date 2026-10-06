@@ -364,8 +364,9 @@ ASALocalRun/
 # Visual Studio History (often used with SSDT)
 .vshistory/
 
-# BeatPulse healthance liveness check folder
-health/
+# BeatPulse healthance liveness check folder at the repository root.
+# Keep application source folders such as src/FraudDetection.Api/Health tracked.
+/health/
 
 # Backup folder for Package Reference Convert tool in Visual Studio 2017
 MigrationBackup/
