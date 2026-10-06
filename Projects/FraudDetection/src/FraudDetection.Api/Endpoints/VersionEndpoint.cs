@@ -6,7 +6,7 @@ namespace FraudDetection.Api.Endpoints;
 /// <summary>
 /// Maps GET /api/v1/version — a composition-root-only endpoint (no domain or
 /// application involvement) that reports the running build's version metadata
-/// for operational diagnostics (ADR-059).
+/// for operational diagnostics (ARCHITECTURE.md).
 /// </summary>
 public static class VersionEndpoint
 {
@@ -25,7 +25,7 @@ public static class VersionEndpoint
                          "the current hosting environment name. A \"commit\" field with the " +
                          "SourceRevisionId is included when the assembly was built with " +
                          "-p:SourceRevisionId=&lt;sha&gt; — local and Docker builds omit it " +
-                         "because the git folder lies outside the Docker build context (ADR-059).")
+                         "because the git folder lies outside the Docker build context (ARCHITECTURE.md).")
         .WithOpenApi();
     }
 }

@@ -6,7 +6,7 @@ namespace FraudDetection.UnitTests.Api;
 
 /// <summary>
 /// Unit tests for <see cref="HealthCheckResponseWriter.BuildResponse"/> — the
-/// pure mapping from HealthReport to the documented JSON contract (ADR-059):
+/// pure mapping from HealthReport to the documented JSON contract (ARCHITECTURE.md):
 /// status/checks/totalDurationMs with per-check name/status/durationMs, plus
 /// a description field ONLY for failed checks.
 /// </summary>

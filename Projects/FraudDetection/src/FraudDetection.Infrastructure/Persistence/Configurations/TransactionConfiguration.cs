@@ -17,7 +17,7 @@ public sealed class TransactionConfiguration : IEntityTypeConfiguration<Transact
         // accumulated query: equality on the source account + range scan on the
         // UTC day window. Previously (CustomerId, CreatedAt) for the velocity
         // rule — replaced by the real challenge's daily-accumulation rule
-        // (see ADR-051/ADR-057).
+        // (see ARCHITECTURE.md).
         builder.HasIndex(t => new { t.SourceAccountId, t.CreatedAt })
             .HasDatabaseName("IX_Transactions_SourceAccountId_CreatedAt");
 

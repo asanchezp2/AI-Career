@@ -162,7 +162,7 @@ public class CreateTransactionTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Post_HighValue5000_Still201AndPending_ProvesAsyncEvaluation()
     {
-        // Core async requirement (ADR-058): a transaction worth 5000 exceeds the
+        // Core async requirement (ARCHITECTURE.md): a transaction worth 5000 exceeds the
         // high-value rule threshold, yet the API does NOT evaluate it — it is
         // created as pending and returned as 201. Evaluation happens only in the
         // worker (covered by unit tests) and never in the request path.

@@ -133,7 +133,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton<IEventPublisher>(EventPublisher);
 
             // The API registers real SqlServer + Kafka health checks
-            // (ADR-059). The test host has neither SQL Server nor a Kafka
+            // (ARCHITECTURE.md). The test host has neither SQL Server nor a Kafka
             // broker, so those checks would always report Unhealthy and
             // /health/ready would always return 503. Instead, remove the
             // registrations (they live inside IConfigureOptions

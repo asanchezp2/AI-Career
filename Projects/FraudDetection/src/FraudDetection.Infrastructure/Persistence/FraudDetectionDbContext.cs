@@ -8,7 +8,7 @@ namespace FraudDetection.Infrastructure.Persistence;
 /// EF Core database context for the FraudDetection database.
 /// The real challenge model has a single aggregate: Transaction. The former
 /// FraudRules and BlacklistedCustomers tables were removed — the two fraud
-/// rules are fixed business constants in the Domain layer (see ADR-051).
+/// rules are fixed business constants in the Domain layer (see ARCHITECTURE.md).
 /// </summary>
 public sealed class FraudDetectionDbContext : DbContext
 {

@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 namespace FraudDetection.IntegrationTests.Api;
 
 /// <summary>
-/// Health probe contract tests (ADR-059):
+/// Health probe contract tests (ARCHITECTURE.md):
 /// - /health/live — liveness only: never evaluates dependencies, always 200.
 /// - /health/ready — readiness: evaluates the real dependencies (SQL Server +
 ///   Kafka); 200 only when ALL are Healthy, 503 otherwise. JSON carries
@@ -132,7 +132,7 @@ public class HealthCheckTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     /// <summary>
-    /// Asserts the documented readiness JSON contract (ADR-059):
+    /// Asserts the documented readiness JSON contract (ARCHITECTURE.md):
     /// status Healthy + checks array with sqlserver and kafka entries, each
     /// carrying status and durationMs, plus a top-level totalDurationMs.
     /// Healthy checks carry no description field.

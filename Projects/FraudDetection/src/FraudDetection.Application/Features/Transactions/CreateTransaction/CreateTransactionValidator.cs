@@ -6,7 +6,7 @@ namespace FraudDetection.Application.Features.Transactions.CreateTransaction;
 /// Validates the CreateTransactionCommand input — shape-level validation only.
 /// Business rules (the two fraud rejection criteria) are deliberately NOT here:
 /// they are evaluated asynchronously by the anti-fraud worker, never in the
-/// request path (see ADR-058).
+/// request path (see ARCHITECTURE.md).
 /// </summary>
 public class CreateTransactionValidator : AbstractValidator<CreateTransactionCommand>
 {

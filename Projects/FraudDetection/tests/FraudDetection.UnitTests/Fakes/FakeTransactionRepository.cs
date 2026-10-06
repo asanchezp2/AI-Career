@@ -21,7 +21,7 @@ public sealed class FakeTransactionRepository : ITransactionRepository
 
     /// <summary>
     /// The value returned by GetDailyAccumulatedAsync (models the repository's
-    /// accumulation INCLUDING the transaction being evaluated, per ADR-057).
+    /// accumulation INCLUDING the transaction being evaluated, per ARCHITECTURE.md).
     /// </summary>
     public decimal DailyAccumulated { get; set; }
 

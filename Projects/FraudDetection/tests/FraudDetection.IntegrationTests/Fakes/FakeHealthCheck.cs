@@ -6,7 +6,7 @@ namespace FraudDetection.IntegrationTests.Fakes;
 /// Deterministic <see cref="IHealthCheck"/> used by the test factory to
 /// replace the real SqlServer and Kafka checks (the test host has neither
 /// SQL Server nor a Kafka broker, so the real checks would always fail —
-/// see ADR-059 for the test-environment strategy).
+/// see ARCHITECTURE.md for the test-environment strategy).
 ///
 /// The result is fixed at construction time, so a test can inject a failing
 /// result to exercise the 503 + error-description path of /health/ready.

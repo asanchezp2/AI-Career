@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace FraudDetection.IntegrationTests.Api;
 
 /// <summary>
-/// Contract tests for GET /api/v1/version (ADR-059): reports the running
+/// Contract tests for GET /api/v1/version (ARCHITECTURE.md): reports the running
 /// build's version metadata without any domain/application involvement.
 /// </summary>
 public class VersionEndpointTests : IClassFixture<CustomWebApplicationFactory>

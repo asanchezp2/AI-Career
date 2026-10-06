@@ -121,7 +121,7 @@ public class EfTransactionRepositoryTests
     {
         // The pending transaction is persisted BEFORE the anti-fraud evaluation
         // runs, so the day's sum includes it — the rule sees 20000.10 > 20000
-        // when the combined day reaches the limit (ADR-057).
+        // when the combined day reaches the limit (ARCHITECTURE.md).
         using var database = new SqliteTestDatabase();
         var repository = new EfTransactionRepository(database.CreateContext());
         await repository.AddAsync(CreateTransaction(19900m, TodayMorning));

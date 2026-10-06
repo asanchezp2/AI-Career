@@ -2,7 +2,7 @@ namespace FraudDetection.Api.Health;
 
 /// <summary>
 /// Tag constants used by the health check registrations and the endpoint
-/// predicates (ADR-059). Kept in a single place so Program.cs (which
+/// predicates (ARCHITECTURE.md). Kept in a single place so Program.cs (which
 /// registers the real checks) and the integration test factory (which
 /// replaces them with fakes) cannot drift apart.
 /// </summary>
@@ -17,7 +17,7 @@ public static class HealthCheckTags
 
 /// <summary>
 /// Check names as they appear in the /health/ready JSON response
-/// (ADR-059). Stable public names — the integration tests and the
+/// (ARCHITECTURE.md). Stable public names — the integration tests and the
 /// response contract depend on them.
 /// </summary>
 public static class HealthCheckNames

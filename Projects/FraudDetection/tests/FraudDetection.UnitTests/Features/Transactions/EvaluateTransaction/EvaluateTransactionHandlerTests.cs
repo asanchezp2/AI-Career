@@ -37,7 +37,7 @@ public class EvaluateTransactionHandlerTests
     {
         // At-least-once delivery may redeliver a processed message; the handler
         // must be idempotent — an already-evaluated transaction is replayed
-        // without re-running the rules or persisting again (ADR-058).
+        // without re-running the rules or persisting again (ARCHITECTURE.md).
         var transaction = CreatePendingTransaction(100m);
         transaction.Approve();
         var repository = new FakeTransactionRepository();
@@ -112,7 +112,7 @@ public class EvaluateTransactionHandlerTests
     public async Task Handle_AccumulatedIncludingCurrentTransactionExceedsLimit_Rejects()
     {
         // The repository accumulates the day INCLUDING the evaluated transaction,
-        // which is already persisted as Pending (ADR-057). The fake models that:
+        // which is already persisted as Pending (ARCHITECTURE.md). The fake models that:
         // 200 (current) + 19950.10 (earlier same-day) = 20050.10 → rule fires.
         var transaction = CreatePendingTransaction(200m);
         var repository = new FakeTransactionRepository { DailyAccumulated = 20050.10m };

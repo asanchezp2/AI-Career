@@ -11,7 +11,7 @@ namespace FraudDetection.Infrastructure.Messaging;
 
 /// <summary>
 /// Kafka implementation of the IEventPublisher port using the direct
-/// Confluent.Kafka client (no MassTransit — see ADR-053).
+/// Confluent.Kafka client (no MassTransit — see ARCHITECTURE.md).
 ///
 /// Serialization: JSON (System.Text.Json) with camelCase + lowercase enums.
 /// Message key: the transaction's external ID, which guarantees per-transaction

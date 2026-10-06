@@ -78,11 +78,11 @@ No hay evaluación en el request: el API nunca aplica las reglas de forma síncr
 
 - .NET 8, ASP.NET Core Web API + Worker (host de consola), Kafka (Confluent.Kafka), EF Core 8 + SQL Server
 - Hexagonal Architecture + Vertical Slice + CQRS explícito (sin MediatR), Specification/Guard/Result
-- Respuesta asíncrona sobre Kafka: el worker publica la evaluación y la API la aplica; entrega at-least-once e idempotencia en la transición (ADR-060)
+- Respuesta asíncrona sobre Kafka: el worker publica la evaluación y la API la aplica; entrega at-least-once e idempotencia en la transición
 - Base de datos: elección libre según el reto; esta implementación usa SQL Server. Kafka es obligatorio.
 
 ## Fuente de verdad
 
 - `Challenge BE-LT.docx` — documento original proporcionado por el usuario, fuera del repositorio
 - `CHALLENGE_TRACEABILITY.md` — requisito → implementación → prueba
-- `DECISIONS.md` — ADR-051 → ADR-060 (reconstrucción y decisiones técnicas)
+- `ARCHITECTURE.md` — diseño actual, decisiones y limitaciones

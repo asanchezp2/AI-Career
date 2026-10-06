@@ -9,7 +9,7 @@ namespace FraudDetection.Application.Abstractions;
 ///
 /// The port is strongly typed per event, so topic names and serialization
 /// details stay inside the adapter: the Application layer knows nothing about
-/// Kafka. See ADR-053.
+/// Kafka. See ARCHITECTURE.md.
 /// </summary>
 public interface IEventPublisher
 {

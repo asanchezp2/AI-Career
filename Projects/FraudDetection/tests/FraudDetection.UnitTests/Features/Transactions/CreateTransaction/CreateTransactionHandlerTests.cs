@@ -95,7 +95,7 @@ public class CreateTransactionHandlerTests
     [Fact]
     public async Task Handle_HighValueTransactionRemainsPending_NoSynchronousEvaluation()
     {
-        // Core async requirement (ADR-058): a value above the high-value rule
+        // Core async requirement (ARCHITECTURE.md): a value above the high-value rule
         // threshold must NOT be evaluated in the request path — the transaction
         // stays Pending and only a TransactionCreated event is published.
         var repository = new FakeTransactionRepository();

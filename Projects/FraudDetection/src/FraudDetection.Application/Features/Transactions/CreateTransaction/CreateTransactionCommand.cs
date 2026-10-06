@@ -8,7 +8,7 @@ namespace FraudDetection.Application.Features.Transactions.CreateTransaction;
 /// <c>{ "sourceAccountId": "Guid", "targetAccountId": "Guid", "tranferTypeId": 1, "value": 120 }</c>.
 ///
 /// The transaction external ID and the creation timestamp are server-generated —
-/// they are not part of the request (see ADR-058).
+/// they are not part of the request (see ARCHITECTURE.md).
 /// </summary>
 [JsonConverter(typeof(CreateTransactionCommandConverter))]
 public class CreateTransactionCommand

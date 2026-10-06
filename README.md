@@ -1,78 +1,31 @@
-# AI Career Workspace
+# AI Career Portfolio
 
-Personal workspace for professional development in AI Engineering and Software Architecture.
+Portfolio and learning workspace focused on **DevOps/Platform Engineering** in the near term, with a longer-term goal of building AI-enabled software solutions.
 
----
+## Featured project
 
-# Professional Goal
+### [Fraud Detection Challenge](Projects/FraudDetection/README.md)
 
-Become an AI Solutions Engineer capable of designing, developing and deploying production-ready AI-powered software solutions.
+A .NET 8 API and Kafka worker that process transaction decisions asynchronously. The project demonstrates API design, messaging, persistence, automated tests, Docker Compose, GitHub Actions, and clear documentation of delivery guarantees and trade-offs.
 
-Target: Remote full-time position paid in USD.
+- [Challenge requirements and traceability](Projects/FraudDetection/CHALLENGE_TRACEABILITY.md)
+- [Architecture and design choices](Projects/FraudDetection/ARCHITECTURE.md)
+- [Interview demo and talk track](Projects/FraudDetection/docs/interview/portfolio-talk-track.md)
+- [DevOps learning checkpoint](Projects/FraudDetection/docs/devops/checkpoint-status.md)
 
----
+The complete stack is designed for local Docker use. The repository does not publish container images or provision paid cloud resources.
 
-# Current Learning Roadmap
+## Workspace contents
 
-✅ Value Objects
+- `Projects/` — portfolio projects; FraudDetection is the featured project.
+- `KnowledgeBase/Architecture/` — personal reference notes. These support study but are not project evidence and some examples may not match the current FraudDetection domain.
+- `NotebookLM/` — reusable study and self-assessment prompts. These are personal learning aids, not deliverables or implemented product features.
 
-✅ Strongly Typed IDs
+## How to review FraudDetection
 
-✅ Rich Entities
+1. Start with the [project README](Projects/FraudDetection/README.md) for setup, API examples, and validation status.
+2. Read the [challenge traceability matrix](Projects/FraudDetection/CHALLENGE_TRACEABILITY.md) to see requirement-to-code/test evidence.
+3. Review the [architecture](Projects/FraudDetection/ARCHITECTURE.md) and its documented limitations.
+4. Run the local demo with Docker Compose by following the project README.
 
-✅ FluentValidation
-
-✅ State Transitions
-
-⬜ CQRS
-
-⬜ MediatR
-
-⬜ Vertical Slice Complete
-
-⬜ Domain Events
-
-⬜ Repository Pattern
-
-⬜ EF Core
-
-⬜ PostgreSQL
-
-⬜ Docker
-
-⬜ GitHub Actions
-
----
-
-# Portfolio Projects
-
-| Project | Repository | Description |
-|---------|------------|-------------|
-| Fraud Detection API | [Fraud-Detection-Challenge](https://github.com/asanchezp2/Fraud-Detection-Challenge) | .NET 8 anti-fraud system with Kafka async evaluation |
-
----
-
-# Repository Structure
-
-| Directory | Purpose |
-|-----------|---------|
-| KnowledgeBase/ | Technical notes on architecture and patterns |
-| NotebookLM/ | Study materials and assessments |
-
----
-
-# Study Method
-
-1. **Study** — Read official documentation and reference materials
-2. **Implement** — Apply concepts in real portfolio projects
-3. **Test** — Unit tests verify correctness and design
-4. **Document** — Knowledge Base captures learnings
-5. **Commit** — Each milestone is committed independently
-6. **Review** — Architecture decisions are evaluated
-7. **Repeat** — Next concept is integrated incrementally
-
----
-
-# Learning Roadmap
-
-See [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md) for detailed learning priorities and career objectives.
+The workspace contains study notes in addition to portfolio material. The featured project is the primary evidence of implementation; learning plans and practice guides are labeled as such and are not claims of completed production experience.

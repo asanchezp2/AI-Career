@@ -65,7 +65,7 @@ public sealed class EfTransactionRepository : ITransactionRepository
     /// Day window: [midnight UTC, midnight UTC + 1 day). The sum INCLUDES the
     /// transaction being evaluated — it is already persisted as Pending when
     /// the anti-fraud worker runs the evaluation (semantics documented in
-    /// ADR-057). The (SourceAccountId, CreatedAt) composite index covers this
+    /// ARCHITECTURE.md). The (SourceAccountId, CreatedAt) composite index covers this
     /// query.
     /// </remarks>
     public async Task<decimal> GetDailyAccumulatedAsync(
@@ -99,7 +99,7 @@ public sealed class EfTransactionRepository : ITransactionRepository
     /// Modified state and rewrites the row. Acceptable here because only the
     /// status/rejection-reason columns change and this deployment uses a single
     /// writer per transaction (the anti-fraud worker). No concurrency token —
-    /// last write wins — a documented pragmatic choice (see ADR-054).
+    /// last write wins — a documented pragmatic choice (see ARCHITECTURE.md).
     /// </remarks>
     public async Task UpdateAsync(Transaction transaction, CancellationToken cancellationToken = default)
     {

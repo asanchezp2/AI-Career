@@ -7,7 +7,7 @@ namespace FraudDetection.Domain.Specifications.Transactions;
 ///
 /// The threshold is a FIXED business rule of the real challenge (value &gt; 2000)
 /// and is therefore a constant of the specification itself — there is no
-/// configurable rules table (see ADR-051). The comparison is strictly greater
+/// configurable rules table (see ARCHITECTURE.md). The comparison is strictly greater
 /// than, matching the challenge wording: a transaction with value exactly
 /// 2000 is accepted.
 /// </summary>

@@ -6,7 +6,7 @@ namespace FraudDetection.Infrastructure.Configuration;
 /// KAFKA__BOOTSTRAPSERVERS).
 ///
 /// Lives in Infrastructure because Kafka is an infrastructure concern — the
-/// Application layer only sees the IEventPublisher port (see ADR-053).
+/// Application layer only sees the IEventPublisher port (see ARCHITECTURE.md).
 /// Validated at startup by <see cref="KafkaOptionsValidator"/>.
 /// </summary>
 public sealed class KafkaOptions

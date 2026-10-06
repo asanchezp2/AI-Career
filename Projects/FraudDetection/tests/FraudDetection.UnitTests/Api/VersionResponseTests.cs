@@ -8,7 +8,7 @@ namespace FraudDetection.UnitTests.Api;
 /// <summary>
 /// Unit tests for <see cref="VersionResponse.FromAssembly"/> — the pure
 /// mapping from assembly metadata to the GET /api/v1/version wire contract
-/// (ADR-059). Dynamic assemblies keep the tests hermetic: the real API
+/// (ARCHITECTURE.md). Dynamic assemblies keep the tests hermetic: the real API
 /// assembly's attributes change with the build environment (e.g. the SDK
 /// appends the git hash to the informational version when building inside
 /// a git work tree).

@@ -56,12 +56,12 @@ POST /api/v1/transactions  →  Transaction persisted (pending)  →  Kafka: tra
 
 | Category | Technology |
 |----------|------------|
-| Runtime | .NET 8, ASP.NET Core, Worker (console host) |
+| Runtime |.NET 8, ASP.NET Core, Worker (console host) |
 | Persistence | Entity Framework Core 8 + SQL Server (migrations) |
 | Messaging | Kafka (KRaft, single node) via Confluent.Kafka |
 | Validation | FluentValidation |
 | Testing | xUnit (unit + integration) |
-| API Docs | OpenAPI / Swagger (all environments — public portfolio choice, ADR-059) |
+| API Docs | OpenAPI / Swagger (enabled in all environments for this public demo) |
 | Containerization | Docker + docker-compose (SQL Server 2022 + Kafka + API + Worker) |
 | CI/CD | GitHub Actions (build, tests, Compose validation, API/Worker image builds) |
 
@@ -76,7 +76,7 @@ FraudDetection/
 │   │   ├── Messaging/                         # TransactionEvaluated response consumer
 │   │   ├── Program.cs                         # API composition root
 │   │   └── appsettings.json                   # Kafka, RateLimit, ConnectionStrings
-│   ├── FraudDetection.Worker/                 # Anti-fraud microservice (NEW, .NET 8 Worker)
+│   ├── FraudDetection.Worker/                 # Anti-fraud microservice (NEW,.NET 8 Worker)
 │   │   ├── Workers/TransactionEvaluationWorker.cs  # Kafka consumer BackgroundService
 │   │   ├── Program.cs                         # Composition root (evaluation side)
 │   │   └── appsettings.json
@@ -89,7 +89,7 @@ FraudDetection/
 │   │       ├── EvaluateTransaction/           # Command, Handler, Result (worker side)
 │   │       └── GetTransaction/                # GetTransactionResponse
 │   ├── FraudDetection.Domain/                 # Pure domain logic
-│   │   ├── Entities/Transaction.cs            # Approve() / Reject(reason) invariants
+│   │   ├── Entities/Transaction.cs            # Approve / Reject(reason) invariants
 │   │   ├── Enums/                             # TransactionStatus (3 states), RejectionReason
 │   │   ├── Guard.cs / Result.cs
 │   │   ├── Services/FraudRuleEngine.cs        # Deterministic: 2 specs → Approved/Rejected+reason
@@ -98,7 +98,7 @@ FraudDetection/
 │       ├── Configuration/                     # KafkaOptions (+ validator)
 │       ├── Messaging/                         # KafkaEventPublisher (producer) + JSON serializer options
 │       ├── Persistence/                       # DbContext, configurations, converters, 1 migration, repository
-│       └── ...
+│       └──...
 └── tests/
     ├── FraudDetection.UnitTests/              # Domain + Application tests
     └── FraudDetection.IntegrationTests/       # API + persistence tests (SQLite file-based)
@@ -106,11 +106,12 @@ FraudDetection/
 
 ## Current Status
 
-**Checkpoint validation (2026-10-02):** `dotnet restore` and Release build pass
-(0 warnings, 0 errors); unit tests pass (123/123); integration tests pass
-(45/45). `docker compose config --quiet` passes. The Docker daemon is not
-running in the current environment, so container image builds and the local
-end-to-end scenarios have not yet been executed here.
+**Last recorded full validation (2026-10-02):** restore and Release build passed
+with zero warnings/errors; 123 unit tests and 45 integration tests passed; and
+`docker compose config --quiet` passed. A later API-only Release build also
+passed with zero warnings/errors. Full local compose smoke testing remains
+unverified; CI builds the images but does not publish them or provision cloud
+resources.
 
 ### Implemented
 
@@ -125,14 +126,14 @@ end-to-end scenarios have not yet been executed here.
 - EF Core 8 + SQL Server: single fresh `InitialCreate` migration; `(SourceAccountId, CreatedAt)` index for the daily-accumulated aggregation; status/reason stored as lowercase strings
 - ProblemDetails (RFC 7807) error contract everywhere (`ExceptionHandlingMiddleware` + 404 responses)
 - Rate limiting (fixed window, config-driven `RateLimit`) on the create endpoint, `429` ProblemDetails + `Retry-After`
-- Security headers + HSTS, structured logging, health probes via the HealthChecks framework (liveness vs readiness, ADR-059), Swagger (all environments), Docker + docker-compose, GitHub Actions CI, Architecture Decision Log (ADR-001 → ADR-060)
+- Security headers + HSTS, structured logging, liveness/readiness health probes, Swagger, Docker Compose, and GitHub Actions CI
 
 ### Intentionally Deferred
 
-- Authentication / Authorization — documented in ADR-041 (portfolio scope)
-- Transactional outbox for exactly-once publishing — documented production path in ADR-058
-- Dead-letter topic for poison messages — invalid messages are logged/committed/skipped; transient processing failures seek/retry (ADR-060)
-- Explicit Kafka topic management (compose uses `AUTO_CREATE_TOPICS_ENABLE=true`) — ADR-053
+- Authentication / Authorization — outside the technical challenge scope; this demo is not intended for public financial data
+- Transactional outbox for atomic persistence and publishing
+- Dead-letter topic and bounded retries for poison messages
+- Explicit Kafka topic management (Compose currently enables automatic topic creation for local development)
 - OpenTelemetry metrics and tracing — structured logs + health endpoints cover current needs
 
 ## Configuration
@@ -272,7 +273,7 @@ docker compose up --build
 docker compose down
 ```
 
-- API on `http://localhost:8080` — Swagger under `/swagger` (enabled in ALL environments — public portfolio choice, ADR-059); health probes at `http://localhost:8080/health/live` (liveness) and `/health/ready` (readiness)
+- API on `http://localhost:8080` — Swagger under `/swagger`; health probes at `http://localhost:8080/health/live` (liveness) and `/health/ready` (readiness)
 - SQL Server 2022 on port `1433` (named volume `sqlserver-data`); Kafka on `localhost:9092`
 - The API and the Worker both auto-apply migrations on startup (`AutoMigrate=true`), so no manual `dotnet ef database update` is required
 - The Worker starts only after Kafka and the API are healthy (the API applies the shared schema first)
@@ -323,19 +324,19 @@ curl "http://localhost:8080/api/v1/version" # build version metadata (commit whe
 
 ## Security
 
-- No authentication or authorization — out of scope for the challenge (ADR-041)
+- No authentication or authorization — out of scope for the challenge; do not expose this demo with real financial data
 - Security headers on all responses (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `X-Permitted-Cross-Domain-Policies`, CSP); HSTS in non-development environments
 - Errors return RFC 7807 `ProblemDetails` — internal details and stack traces are never exposed
 - Rate limiting on the create endpoint (`429` + `Retry-After`)
 - No secrets in source code; the Docker SA password and Kafka config are environment-driven
-- Swagger UI enabled in all environments (public portfolio repo — see ADR-059; real systems with sensitive data would gate it)
+- Swagger UI enabled in all environments for local portfolio demonstration; real systems with sensitive data should gate it
 
 ## Known Limitations
 
 - **At-least-once delivery**: a crash after publishing the response but before committing the input offset can produce duplicate evaluations. The API applies identical responses idempotently and never overwrites an already terminal transaction; conflicting duplicates are logged and skipped.
-- **Persist-then-publish** in the create flow: a publish failure surfaces as a 500 while the row stays pending; transactional outbox is the documented production path (ADR-058)
+- **Persist-then-publish** in the create flow: a publish failure surfaces as a 500 while the row stays pending; a transactional outbox would close this failure window
 - A failed worker evaluation or API response persistence is retried by seeking back to the failed Kafka offset; permanently invalid or uncorrelated response messages are logged and skipped, so they may leave a transaction pending for operator follow-up.
-- Shared database between API and Worker — pragmatic single-deployment choice, documented in ADR-054 (production would split)
+- Shared database between API and Worker — pragmatic for a local challenge demo; a production design could revisit ownership and service boundaries
 - Integration tests use SQLite (file-based), not SQL Server — performance numbers are indicative only
 - **No automated Kafka E2E test**: CI runs unit + integration tests with fake publisher/repository — a full Api → Kafka → Worker → DB round trip is not exercised via Testcontainers and must be validated manually against the running compose stack (see "Test the async flow end to end" below)
 - **SQLite decimal `SUM`**: the integration test provider has no native decimal type, so the daily-accumulated aggregate projects to `double` and casts back to `decimal` — exact to the cent for realistic daily amounts; SQL Server translates it to `SUM(CAST(Value AS float))` (see `EfTransactionRepository.GetDailyAccumulatedAsync`)
@@ -346,19 +347,16 @@ curl "http://localhost:8080/api/v1/version" # build version metadata (commit whe
 
 | Document | Description |
 |----------|-------------|
-| [Architecture](ARCHITECTURE.md) | Full architecture deep-dive with the async flow |
+| [Architecture](ARCHITECTURE.md) | Current system flow, design choices, and trade-offs |
 | [Challenge](CHALLENGE.md) | The real challenge requirements (3 states, 2 fraud rules, Kafka async flow) |
-| [Decisions](DECISIONS.md) | Architecture Decision Log (ADR-001 through ADR-060) |
 | [Challenge traceability](CHALLENGE_TRACEABILITY.md) | Source requirement → implementation → verification matrix |
-| [Portfolio repository reconciliation](docs/portfolio-reconciliation.md) | Standalone vs AI-Career copy and safe publication sequence |
 | [DevOps checkpoint](docs/devops/checkpoint-status.md) | Verified progress and remaining hands-on evidence |
 | [Git/GitHub labs](docs/devops/git-github-labs.md) | Safe branch, pull request, review, and CI practice |
 | [Linux troubleshooting](docs/devops/linux-troubleshooting.md) | Local incident scenarios and evidence-first response format |
 | [Interview talk track](docs/interview/portfolio-talk-track.md) | Demo sequence and Spanish/English interview answers |
-| [InmoInsight beta audit](docs/inmoinsight-beta-audit.md) | Read-only beta blockers and zero-cost launch gate |
 | [Deploy lab roadmap](deploy/README.md) | Local Docker demo and later DevOps phases |
 | [KnowledgeBase](https://github.com/asanchezp2/AI-Career/tree/main/KnowledgeBase/Architecture/) | Educational reference for patterns used |
 
 ## CI/CD
 
-The repository-level GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push and pull requests to `main`: restore, Release build with warnings treated as errors, full tests, Compose configuration validation, local API and Worker image builds, and test-result artifact upload. It does not publish to a container registry or deploy paid infrastructure.
+The workspace-level GitHub Actions workflow (`../../.github/workflows/ci.yml`) runs on relevant pushes and pull requests to `main`: restore, Release build with warnings treated as errors, tests, Compose configuration validation, local API and Worker image builds, and test-result artifact upload. It does not publish to a container registry or deploy paid infrastructure.

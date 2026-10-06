@@ -22,7 +22,7 @@ RUN dotnet restore src/FraudDetection.Api/FraudDetection.Api.csproj \
 COPY src/ src/
 
 # Publish API.
-# NOTE (ADR-059): the publish deliberately does NOT pass
+# NOTE (ARCHITECTURE.md): the publish deliberately does NOT pass
 # -p:SourceRevisionId=$(git rev-parse HEAD) — the .git folder lives in the
 # parent repository (above this build context), so git metadata is
 # inaccessible here; the SDK image would also find no repo to query. The API
@@ -57,7 +57,7 @@ ENV ASPNETCORE_URLS=http://+:8080
 
 # Liveness probe only (/health/live — no dependencies, always 200 while the
 # process serves): a Kafka/SQL Server outage must not cascade-restart the API
-# (see ADR-059). Readiness with per-dependency detail lives at /health/ready
+# (see ARCHITECTURE.md). Readiness with per-dependency detail lives at /health/ready
 # for manual/curl inspection.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD curl --fail http://localhost:8080/health/live || exit 1

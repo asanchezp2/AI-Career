@@ -127,7 +127,7 @@ public class TransactionTests
     {
         // RejectionReason is a mandatory, defined enum value — there is no way
         // to reject without a documented reason, which keeps the audit trail
-        // intact (ADR-056). An undefined enum value is the closest invalid input.
+        // intact (ARCHITECTURE.md). An undefined enum value is the closest invalid input.
         var transaction = CreateTransaction();
 
         Assert.Throws<ArgumentOutOfRangeException>(

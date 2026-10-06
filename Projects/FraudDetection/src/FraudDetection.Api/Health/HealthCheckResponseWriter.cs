@@ -5,7 +5,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 namespace FraudDetection.Api.Health;
 
 /// <summary>
-/// JSON response writer for the health check endpoints (wire contract, ADR-059):
+/// JSON response writer for the health check endpoints (wire contract, ARCHITECTURE.md):
 ///
 /// <code>
 /// {

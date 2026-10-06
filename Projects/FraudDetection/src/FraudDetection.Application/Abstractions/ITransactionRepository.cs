@@ -25,7 +25,7 @@ public interface ITransactionRepository
     /// Computes the accumulated <see cref="Transaction.Value"/> for the given source
     /// account within the specified UTC day [startOfDay, nextDayStart).
     /// The sum INCLUDES the transaction being evaluated when it is part of that day —
-    /// it is already persisted as Pending by the time the evaluation runs (see ADR-057).
+    /// it is already persisted as Pending by the time the evaluation runs (see ARCHITECTURE.md).
     /// </summary>
     /// <param name="sourceAccountId">The source account to aggregate.</param>
     /// <param name="day">The UTC day boundary (inclusive start, exclusive end).</param>

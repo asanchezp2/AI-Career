@@ -4,25 +4,29 @@ on:
   push:
     branches: [main]
     paths:
+      - '.github/workflows/ci.yml'
       - 'Projects/FraudDetection/**'
   pull_request:
     branches: [main]
     paths:
+      - '.github/workflows/ci.yml'
       - 'Projects/FraudDetection/**'
 
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: Projects/FraudDetection
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
 
@@ -43,10 +47,19 @@ jobs:
       - name: Validate docker-compose config
         run: docker compose config --quiet
 
+      # Build the runtime images locally in the hosted runner; no registry
+      # credentials, image publication, or paid infrastructure are used.
+      - name: Build API container image
+        run: docker build --file Dockerfile --target final-api --tag fraud-detection-api:ci .
+
+      - name: Build Worker container image
+        run: docker build --file Dockerfile --target final-worker --tag fraud-detection-worker:ci .
+
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results
           path: Projects/FraudDetection/TestResults
+          if-no-files-found: ignore
           retention-days: 7

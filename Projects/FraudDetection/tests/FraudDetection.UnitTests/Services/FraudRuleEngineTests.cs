@@ -42,7 +42,7 @@ public class FraudRuleEngineTests
     public void Evaluate_BothRulesMatch_ReturnsHighValuePrecedence()
     {
         // Both rules match (value > 2000 and accumulated > 20000); the high-value
-        // rule is evaluated first, so it wins (documented precedence, ADR-057).
+        // rule is evaluated first, so it wins (documented precedence, ARCHITECTURE.md).
         var result = _engine.Evaluate(CreateTransaction(5000m), dailyAccumulatedAmount: 50000m);
 
         Assert.Equal(TransactionStatus.Rejected, result.RecommendedStatus);

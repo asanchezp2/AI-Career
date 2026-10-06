@@ -116,7 +116,7 @@ builder.Services.AddRateLimiter(rateLimiterOptions =>
 });
 
 // Health checks — real dependency probes for readiness (SQL Server + Kafka),
-// per ADR-059. Both checks are registered with the "ready" tag: the
+// per ARCHITECTURE.md. Both checks are registered with the "ready" tag: the
 // /health/ready endpoint selects them via Predicate, while /health/live
 // selects NO checks at all (a liveness probe must never depend on
 // infrastructure it is meant to protect).
@@ -185,7 +185,7 @@ if (!app.Environment.IsDevelopment())
 // Auto-apply pending migrations.
 // Runs in Development, or in any environment when AutoMigrate=true
 // (used by docker-compose so containers start with a ready schema).
-// The database schema is the same one the Worker shares (ADR-054).
+// The database schema is the same one the Worker shares (ARCHITECTURE.md).
 if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("AutoMigrate"))
 {
     using var scope = app.Services.CreateScope();
@@ -199,7 +199,7 @@ if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("AutoMig
 // is a public portfolio repository with no sensitive data, and recruiters
 // open /swagger directly against the docker-compose container. A real
 // production system with sensitive data would keep Swagger development-only
-// or behind authentication (see ADR-059 for the trade-off).
+// or behind authentication (see ARCHITECTURE.md for the trade-off).
 app.UseSwagger();
 app.UseSwaggerUI();
 
@@ -213,7 +213,7 @@ app.UseRateLimiter();
 app.MapTransactions();
 app.MapVersion();
 
-// Health check endpoints — see ADR-059.
+// Health check endpoints — see ARCHITECTURE.md.
 //
 // /health/live is the LIVENESS probe: the process is up and serving requests.
 // Its predicate selects NO checks (Predicate => false), so it never evaluates
@@ -248,7 +248,7 @@ app.MapHealthChecks("/health/ready", readinessOptions)
 // /health — alias of /health/ready, preserved for backwards compatibility
 // with the docs, scripts and the pre-existing Dockerfile HEALTHCHECK. The
 // response format is now the /health/ready JSON (the old hand-rolled
-// {status,timestamp} contract is superseded — see ADR-059).
+// {status,timestamp} contract is superseded — see ARCHITECTURE.md).
 app.MapHealthChecks("/health", readinessOptions)
     .WithName("HealthCheck")
     .WithOpenApi();

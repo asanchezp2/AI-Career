@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 var builder = Host.CreateApplicationBuilder(args);
 
 // Persistence — the Worker shares the FraudDetection database with the API
-// (pragmatic single-deployment choice, documented in ADR-054). It reads
+// (pragmatic single-deployment choice, documented in ARCHITECTURE.md). It reads
 // pending transactions to evaluate them; the API persists the returned status.
 builder.Services.AddDbContext<FraudDetectionDbContext>(options =>
     options.UseSqlServer(
@@ -47,7 +47,7 @@ var autoMigrate = builder.Configuration.GetValue<bool>("AutoMigrate");
 var host = builder.Build();
 
 // Auto-apply pending migrations when configured (docker-compose dev/portfolio
-// choice — the API applies the same behavior; see ADR-054).
+// choice — the API applies the same behavior; see ARCHITECTURE.md).
 if (autoMigrate)
 {
     using var scope = host.Services.CreateScope();

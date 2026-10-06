@@ -7,7 +7,7 @@ namespace FraudDetection.Domain.Services;
 /// Represents the result of evaluating a transaction against the fraud rules.
 /// The decision model is binary: the transaction is either Approved or Rejected,
 /// and a rejection always carries the reason (which rule matched). There is no
-/// risk scoring — see ADR-056.
+/// risk scoring — see ARCHITECTURE.md.
 /// </summary>
 public sealed record FraudRuleEngineResult(
     TransactionStatus RecommendedStatus,

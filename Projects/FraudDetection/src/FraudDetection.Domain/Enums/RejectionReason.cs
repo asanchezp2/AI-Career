@@ -4,7 +4,7 @@ namespace FraudDetection.Domain.Enums;
 /// Identifies which fraud rule caused a transaction to be rejected.
 /// Acts as an audit log on the transaction — it records WHY the transaction
 /// was rejected without any risk scoring (binary decision model, see
-/// ADR-056). Stored as a nullable lowercase string in the database; it is
+/// ARCHITECTURE.md). Stored as a nullable lowercase string in the database; it is
 /// only ever set when <see cref="TransactionStatus.Rejected"/>.
 /// </summary>
 public enum RejectionReason

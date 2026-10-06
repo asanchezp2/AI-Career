@@ -50,7 +50,7 @@ public class Transaction
     /// <summary>
     /// The date and time when this transaction was created (UTC).
     /// Server-generated at creation time; used as the day boundary for the
-    /// daily-accumulated fraud rule (see ADR-057).
+    /// daily-accumulated fraud rule (see ARCHITECTURE.md).
     /// </summary>
     public DateTime CreatedAt { get; private set; }
 
@@ -62,7 +62,7 @@ public class Transaction
     /// <summary>
     /// Which fraud rule caused the rejection. Only set when
     /// <see cref="Status"/> is <see cref="TransactionStatus.Rejected"/>;
-    /// null otherwise. Acts as the decision audit trail (see ADR-056).
+    /// null otherwise. Acts as the decision audit trail (see ARCHITECTURE.md).
     /// </summary>
     public RejectionReason? RejectionReason { get; private set; }
 

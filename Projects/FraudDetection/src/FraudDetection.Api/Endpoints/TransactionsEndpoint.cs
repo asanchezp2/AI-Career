@@ -20,7 +20,7 @@ public static class TransactionsEndpoint
         // POST /api/v1/transactions — Resource 1 of the challenge.
         // Creates the transaction in Pending status and returns 201 Created with
         // a Location header; the anti-fraud evaluation happens ASYNCHRONOUSLY via
-        // Kafka (the worker updates the state later — see ADR-058). This endpoint
+        // Kafka (the worker updates the state later — see ARCHITECTURE.md). This endpoint
         // never evaluates fraud rules synchronously.
         app.MapPost("/api/v1/transactions", async (
             CreateTransactionCommand command,

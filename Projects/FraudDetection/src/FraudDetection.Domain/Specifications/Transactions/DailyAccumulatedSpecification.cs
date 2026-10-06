@@ -14,7 +14,7 @@ namespace FraudDetection.Domain.Specifications.Transactions;
 /// and supplied via the constructor — the specification itself never queries.
 /// IMPORTANT: the accumulated sum INCLUDES the transaction being evaluated,
 /// because the transaction is already persisted as Pending when the evaluation
-/// runs (see ADR-057 for the semantics and the UTC day boundary).
+/// runs (see ARCHITECTURE.md for the semantics and the UTC day boundary).
 /// </summary>
 public class DailyAccumulatedSpecification : ISpecification
 {

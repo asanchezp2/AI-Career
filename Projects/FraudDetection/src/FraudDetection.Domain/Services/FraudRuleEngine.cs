@@ -8,7 +8,7 @@ namespace FraudDetection.Domain.Services;
 /// Domain service that evaluates a transaction against the fixed fraud rules
 /// using the Specification Pattern.
 ///
-/// The real challenge defines exactly two rejection criteria (see ADR-051):
+/// The real challenge defines exactly two rejection criteria (see ARCHITECTURE.md):
 /// 1. HighValue — transaction value &gt; 2000.
 /// 2. DailyAccumulated — day's accumulated value of the same source account &gt; 20000.
 ///

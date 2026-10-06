@@ -20,7 +20,7 @@ services:
   # - PLAINTEXT_HOST exposes localhost:9092 for host-side tools/CLIs.
   # - AUTO_CREATE_TOPICS_ENABLE=true is a dev convenience: the transaction
   #   topics are created on first produce. Production would manage topics
-  #   explicitly (see ADR-053).
+  #   explicitly (see ARCHITECTURE.md).
   kafka:
     image: confluentinc/cp-kafka:7.7.1
     environment:
@@ -58,7 +58,7 @@ services:
       ASPNETCORE_ENVIRONMENT: "Production"
       ASPNETCORE_URLS: "http://+:8080"
       # Applies pending migrations on startup (Program.cs runs auto-migration
-      # when Development OR AutoMigrate=true). Dev/portfolio choice — ADR-054.
+      # when Development OR AutoMigrate=true). Dev/portfolio choice — ARCHITECTURE.md.
       AutoMigrate: "true"
       ConnectionStrings__DefaultConnection: "Server=sqlserver;Database=FraudDetectionDb;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Your_Strong_Passw0rd!};TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
       KAFKA__BOOTSTRAPSERVERS: "kafka:29092"
@@ -71,7 +71,7 @@ services:
       - "8080:8080"
     # Liveness probe only (/health/live — no dependencies): a Kafka or SQL
     # Server outage must not make the API container look dead and trigger a
-    # restart cascade (ADR-059). /health/ready (SQL Server + Kafka checks)
+    # restart cascade (ARCHITECTURE.md). /health/ready (SQL Server + Kafka checks)
     # stays available for manual inspection; it is deliberately NOT wired to
     # depends_on because a dependency blip would then block the worker.
     healthcheck:
@@ -92,7 +92,7 @@ services:
   # the status. Starts after Kafka AND the API are
   # healthy (the API runs the migrations that create the shared schema — the
   # migration runs BEFORE the API starts listening, so the liveness probe
-  # becoming healthy already guarantees the schema exists; ADR-059).
+  # becoming healthy already guarantees the schema exists; ARCHITECTURE.md).
   worker:
     build:
       context: .

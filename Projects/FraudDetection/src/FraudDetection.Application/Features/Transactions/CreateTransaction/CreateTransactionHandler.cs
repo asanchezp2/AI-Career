@@ -10,7 +10,7 @@ namespace FraudDetection.Application.Features.Transactions.CreateTransaction;
 /// Handles the CreateTransaction command.
 ///
 /// The handler does NOT evaluate fraud rules — there is no synchronous
-/// evaluation in the request path (see ADR-058). It:
+/// evaluation in the request path (see ARCHITECTURE.md). It:
 ///   1. creates the domain Transaction in Pending status (server-generated ID
 ///      and UTC timestamp),
 ///   2. persists it via the repository,
@@ -20,7 +20,7 @@ namespace FraudDetection.Application.Features.Transactions.CreateTransaction;
 /// Persist-then-publish is a deliberate trade-off: if publishing fails the
 /// client sees a 500 while the transaction row remains pending. The proper
 /// production fix (transactional outbox) is documented as a future enhancement
-/// in ADR-058.
+/// in ARCHITECTURE.md.
 /// </summary>
 public sealed class CreateTransactionHandler
 {

@@ -15,7 +15,7 @@ Este laboratorio documenta trabajo demostrable sobre este repositorio. No reempl
 
 - `git log --oneline --decorate -n 10` y `git status --short` para explicar historia y estado.
 - Un PR con descripción, revisión y CI verde (cuando exista un cambio que el usuario decida publicar).
-- `.github/workflows/ci.yml` como ejemplo del pipeline que valida restore/build/test, Compose e imágenes locales.
+- [Workflow de GitHub Actions](../../../../.github/workflows/ci.yml) como ejemplo del pipeline que valida restore/build/test, Compose e imágenes locales.
 - Explicar una decisión basada en requisitos, como separar la evaluación de la persistencia del resultado por Kafka.
 
 ## Ejercicio seguro

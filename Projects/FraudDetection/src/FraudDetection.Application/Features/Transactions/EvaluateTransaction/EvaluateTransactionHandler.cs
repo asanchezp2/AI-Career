@@ -17,9 +17,9 @@ namespace FraudDetection.Application.Features.Transactions.EvaluateTransaction;
 ///   2. if missing — log and return null (the worker skips publishing),
 ///   3. if already evaluated (not Pending) — replay: return the current state
 ///      without re-evaluating. This makes the consumer idempotent under
-///      at-least-once Kafka delivery (see ADR-058),
+///      at-least-once Kafka delivery (see ARCHITECTURE.md),
 ///   4. compute the day's accumulated value for the source account (INCLUDING
-///      this transaction, which is already persisted as Pending — ADR-057),
+///      this transaction, which is already persisted as Pending — ARCHITECTURE.md),
 ///   5. run the fraud rules via FraudRuleEngine,
 ///   6. return the recommended status for the Worker to publish.
 ///
