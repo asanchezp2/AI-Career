@@ -44,7 +44,7 @@ The API and worker are composition roots. Application ports (`ITransactionReposi
 
 - Only three states exist: `pending`, `approved`, and `rejected`.
 - A transaction is rejected if `value > 2000` or the accumulated amount is `> 20000`.
-- The challenge does not define the daily aggregation key or time zone. This implementation groups by `sourceAccountId` and UTC calendar day, including the transaction being evaluated. This is an explicit assumption.
+- The challenge does not define the daily aggregation key, time zone, or whether rejected transactions count. This implementation sums all recorded transactions for the same `sourceAccountId` and UTC calendar day, including the transaction being evaluated and previously rejected transactions. This is an explicit implementation assumption.
 - The API accepts the challenge's literal `tranferTypeId` field name and the correctly spelled `transferTypeId` alias.
 - SQL Server is the chosen database; Kafka is required by the challenge. Docker Compose runs SQL Server, a single-node Kafka KRaft broker, API, and worker locally.
 
@@ -65,7 +65,7 @@ See [CHALLENGE_TRACEABILITY.md](CHALLENGE_TRACEABILITY.md) for the requirement-t
 - `GET /health/live` checks that the API process is serving and does not depend on Kafka or SQL Server.
 - `GET /health/ready` checks SQL Server and Kafka; `GET /health` is its compatibility alias.
 - GitHub Actions is defined once at the workspace root in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It restores, builds in Release with warnings treated as errors, runs tests, validates Compose, and builds API/worker images locally in the runner. It does not publish images or deploy infrastructure.
-- Automated tests cover domain rules, handlers, persistence, API contracts, and response application. A full broker-backed API → Kafka → worker → API round trip remains a manual Docker Compose demo rather than a CI integration test.
+- Automated tests cover domain rules, handlers, persistence, API contracts, and response application. The full broker-backed API → Kafka → Worker → Kafka → API round trip was manually validated with Docker Compose on 2026-10-06; CI does not yet run a broker-backed E2E test.
 
 ## Source layout
 

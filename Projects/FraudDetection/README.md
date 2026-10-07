@@ -13,9 +13,7 @@ Implements the real technical challenge: every created transaction must be valid
 | 1 | High value | `value` > **2000** |
 | 2 | Daily accumulated | accumulated > **20000** |
 
-The challenge document does not define the aggregation key or time zone. This
-implementation uses the same `sourceAccountId` and UTC calendar day as an
-explicit documented assumption; the pending transaction is included in the sum.
+The challenge leaves the aggregation key, time zone, and inclusion of rejected transactions undefined. This implementation sums all transactions for the same `sourceAccountId` on the UTC calendar day, including the pending transaction under evaluation and previously rejected transactions. These are explicit implementation assumptions.
 
 The API never evaluates rules synchronously — evaluation happens via Kafka (`TransactionCreated` → worker → `TransactionEvaluated`).
 
@@ -106,12 +104,7 @@ FraudDetection/
 
 ## Current Status
 
-**Last recorded full validation (2026-10-02):** restore and Release build passed
-with zero warnings/errors; 123 unit tests and 45 integration tests passed; and
-`docker compose config --quiet` passed. A later API-only Release build also
-passed with zero warnings/errors. Full local compose smoke testing remains
-unverified; CI builds the images but does not publish them or provision cloud
-resources.
+**Verified local validation (2026-10-06):** Release build and all 168 automated tests passed (123 unit + 45 integration). Compose configuration validated; API and Worker images built; SQL Server, Kafka, API, and Worker started healthy. The full HTTP → Kafka → Worker → Kafka → SQL Server flow passed approval, high-value rejection, and daily-accumulation rejection scenarios. CI has no broker-backed E2E test and its latest GitHub run must be checked after these changes are pushed.
 
 ### Implemented
 
@@ -315,12 +308,23 @@ curl "http://localhost:8080/health"       # alias of /health/ready (backwards co
 curl "http://localhost:8080/api/v1/version" # build version metadata (commit when a SourceRevisionId build)
 ```
 
-### Test the async flow end to end
+### Run the async flow end to end
 
-1. `docker compose up --build`
-2. POST a transaction with `value` > 2000 → `201` with `status: "pending"`
-3. GET the transaction → within seconds it should report `status: "rejected"`, `rejectionReason: "highvalue"`
-4. Repeat with `value: 120` → `status: "approved"`
+Start the local stack:
+
+    docker compose up --build -d
+
+Wait until http://localhost:8080/health/ready reports Healthy, then run the repeatable smoke test:
+
+    powershell -ExecutionPolicy Bypass -File .\scripts\smoke-test.ps1
+
+The script generates fresh account IDs and verifies:
+
+- A transaction is approved.
+- A value above 2000 is rejected as highvalue.
+- Ten sequential approved transactions of 1900 plus a further 1500 for the same account and UTC day are rejected as dailyaccumulated.
+
+The script leaves its test rows in the SQL Server volume. Use docker compose down to stop the stack; this keeps the volume.
 
 ## Security
 
@@ -338,7 +342,7 @@ curl "http://localhost:8080/api/v1/version" # build version metadata (commit whe
 - A failed worker evaluation or API response persistence is retried by seeking back to the failed Kafka offset; permanently invalid or uncorrelated response messages are logged and skipped, so they may leave a transaction pending for operator follow-up.
 - Shared database between API and Worker — pragmatic for a local challenge demo; a production design could revisit ownership and service boundaries
 - Integration tests use SQLite (file-based), not SQL Server — performance numbers are indicative only
-- **No automated Kafka E2E test**: CI runs unit + integration tests with fake publisher/repository — a full Api → Kafka → Worker → DB round trip is not exercised via Testcontainers and must be validated manually against the running compose stack (see "Test the async flow end to end" below)
+- **No broker-backed E2E test in CI**: the full API → Kafka → Worker → Kafka → SQL Server flow was manually validated against Docker Compose on 2026-10-06; CI still relies on unit/integration tests with test doubles rather than Testcontainers.
 - **SQLite decimal `SUM`**: the integration test provider has no native decimal type, so the daily-accumulated aggregate projects to `double` and casts back to `decimal` — exact to the cent for realistic daily amounts; SQL Server translates it to `SUM(CAST(Value AS float))` (see `EfTransactionRepository.GetDailyAccumulatedAsync`)
 - **Challenge field spelling**: the challenge document (Challenge_BE-LT.docx) writes `tranferTypeId`; a custom `JsonConverter<CreateTransactionCommand>` (see `CreateTransactionCommandConverter.cs`) binds the **literal challenge spelling** to `TransferTypeId`, and also accepts the correctly-spelled `transferTypeId` as an alias — both case-insensitively (`tranferTypeId` wins when both are present). Posting the challenge's exact payload returns `201`.
 - No OpenTelemetry/metrics — observability is structured logs + health endpoints
@@ -354,8 +358,7 @@ curl "http://localhost:8080/api/v1/version" # build version metadata (commit whe
 | [Git/GitHub labs](docs/devops/git-github-labs.md) | Safe branch, pull request, review, and CI practice |
 | [Linux troubleshooting](docs/devops/linux-troubleshooting.md) | Local incident scenarios and evidence-first response format |
 | [Interview talk track](docs/interview/portfolio-talk-track.md) | Demo sequence and Spanish/English interview answers |
-| [Deploy lab roadmap](deploy/README.md) | Local Docker demo and later DevOps phases |
-| [KnowledgeBase](https://github.com/asanchezp2/AI-Career/tree/main/KnowledgeBase/Architecture/) | Educational reference for patterns used |
+| [Local smoke test](scripts/smoke-test.ps1) | Repeatable approval and rejection scenarios against Docker Compose |
 
 ## CI/CD
 

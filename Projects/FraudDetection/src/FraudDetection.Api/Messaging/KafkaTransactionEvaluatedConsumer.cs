@@ -39,6 +39,8 @@ public sealed class KafkaTransactionEvaluatedConsumer : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Let Generic Host finish startup before the synchronous Kafka poll waits for a message.
+        await Task.Yield();
         var config = new ConsumerConfig
         {
             BootstrapServers = _options.BootstrapServers,
@@ -68,11 +70,15 @@ public sealed class KafkaTransactionEvaluatedConsumer : BackgroundService
                 catch (ConsumeException ex)
                 {
                     _logger.LogError(ex, "Kafka response consume error: {ErrorReason}", ex.Error.Reason);
+                    await Task.Delay(RetryDelay, stoppingToken);
                     continue;
                 }
 
                 if (result is null)
+                {
+                    await Task.Yield();
                     continue;
+                }
 
                 try
                 {

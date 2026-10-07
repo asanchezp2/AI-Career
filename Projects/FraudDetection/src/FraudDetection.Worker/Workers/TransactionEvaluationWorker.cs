@@ -32,6 +32,8 @@ namespace FraudDetection.Worker.Workers;
 /// </summary>
 public sealed class TransactionEvaluationWorker : BackgroundService
 {
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(1);
+
     private readonly KafkaOptions _options;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TransactionEvaluationWorker> _logger;
@@ -56,6 +58,8 @@ public sealed class TransactionEvaluationWorker : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Let Generic Host finish startup before the synchronous Kafka poll waits for a message.
+        await Task.Yield();
         var config = new ConsumerConfig
         {
             BootstrapServers = _options.BootstrapServers,
@@ -91,10 +95,17 @@ public sealed class TransactionEvaluationWorker : BackgroundService
                     // Transient broker/connection errors — log and keep polling.
                     // The consumer stays subscribed; recovery happens on retry.
                     _logger.LogError(ex, "Kafka consume error: {ErrorReason}", ex.Error.Reason);
+                    await Task.Delay(RetryDelay, stoppingToken);
                     continue;
                 }
 
-                if (result is null || stoppingToken.IsCancellationRequested)
+                if (result is null)
+                {
+                    await Task.Yield();
+                    continue;
+                }
+
+                if (stoppingToken.IsCancellationRequested)
                     continue;
 
                 try
@@ -120,7 +131,7 @@ public sealed class TransactionEvaluationWorker : BackgroundService
                         result.Message.Key,
                         result.Offset);
                     consumer.Seek(new TopicPartitionOffset(result.TopicPartition, result.Offset));
-                    await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+                    await Task.Delay(RetryDelay, stoppingToken);
                 }
             }
         }

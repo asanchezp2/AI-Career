@@ -30,9 +30,7 @@ No existe estado *Under Review*.
 | 2 | Daily accumulated | acumulado > **20000** |
 
 Ambas reglas rechazan. El documento original no define la clave de agregación ni
-la zona horaria. Para esta implementación se eligió explícitamente agrupar por
-`sourceAccountId` y día UTC, incluyendo la transacción evaluada. Es una
-interpretación documentada, no un detalle textual del reto.
+la zona horaria ni si se cuentan transacciones rechazadas. Esta implementación suma todas las transacciones del mismo `sourceAccountId` en el día UTC, incluyendo la que se evalúa y las previamente rechazadas. Es un supuesto explícito, no un detalle textual del requisito.
 
 ### Flujo asíncrono
 

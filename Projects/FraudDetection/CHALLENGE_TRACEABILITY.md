@@ -1,41 +1,29 @@
 # Challenge Traceability
 
-This matrix maps the supplied `Challenge BE-LT.docx` to the implementation and
-verification evidence in this repository. The challenge permits the candidate
-to choose implementation style and database. The supplied PostgreSQL/ZooKeeper
-Compose file is a development aid; this repository uses SQL Server and a local
-Kafka KRaft broker.
+This matrix maps the supplied `Challenge BE-LT.docx` to the implementation and evidence in this repository. The challenge permits the candidate to choose the implementation style and database. The supplied PostgreSQL/ZooKeeper Compose file is a local development aid; this solution uses SQL Server and Kafka KRaft.
 
-| ID | Requirement from the challenge | Implementation | Verification / note |
-|----|---------------------------------|----------------|---------------------|
-| R1 | Use .NET 8 | All application and test projects target `net8.0` | `dotnet build FraudDetection.sln -c Release` |
-| R2 | Use Kafka for asynchronous evaluation | API publishes `TransactionCreated`; Worker consumes it and publishes `TransactionEvaluated`; API consumes that response | Handler/persistence tests pass; local Docker Compose smoke test is pending because the Docker daemon is unavailable in this environment |
-| R3 | Every created transaction is evaluated by the anti-fraud microservice, which sends a response that updates its status | Worker computes the decision and publishes the response; API applies and persists it | Worker publishing tests and API-side response-handler persistence/idempotency tests |
-| R4 | Exactly three states: `pending`, `approved`, `rejected` | `TransactionStatus` and pending-only domain transitions | Domain tests and response-handler tests |
-| R5 | Reject a transaction when its value is greater than 2000 | `HighValueSpecification` uses the strict `>` threshold | Specification and fraud-engine tests; threshold-equality case remains approved by this rule |
-| R6 | Reject when daily accumulated value is greater than 20000 | `DailyAccumulatedSpecification` uses the strict `>` threshold | Specification/repository tests and local end-to-end scenario below |
-| R7 | Creation resource accepts `sourceAccountId`, `targetAccountId`, `tranferTypeId`, and `value` | `CreateTransactionCommandConverter` accepts the challenge's literal `tranferTypeId` and the correctly spelled alias | Converter and API integration tests |
-| R8 | Retrieval resource returns the transaction identifier and creation date | `GET /api/v1/transactions/{id}` returns the identifier, creation time, status, and rejection reason when applicable | API integration tests for found and unknown transactions |
-| R9 | A Dockerfile is provided to help run the development environment | Root `Dockerfile` and `docker-compose.yml` run SQL Server, Kafka, API, and Worker locally | Compose configuration validates; image builds and manual smoke test are pending Docker availability |
+| ID | Requirement | Implementation | Verification evidence |
+|----|-------------|----------------|-----------------------|
+| R1 | Use .NET 8 | All application and test projects target `net8.0` | Release build passed as part of `dotnet test FraudDetection.sln --no-restore -c Release` on 2026-10-06. |
+| R2 | Use Kafka for asynchronous evaluation | API publishes `TransactionCreated`; Worker consumes it and publishes `TransactionEvaluated`; API consumes the response | Local Compose E2E passed on 2026-10-06: a POST returned `pending`, then GET observed the terminal state after the worker response. |
+| R3 | Anti-fraud microservice sends a response that updates transaction state | Worker evaluates and publishes the decision; API applies and persists the response after consuming it | Verified for approval and both rejection rules through the running Kafka/SQL/API/Worker stack. Offsets are committed after publish/persistence. |
+| R4 | Exactly three states: `pending`, `approved`, `rejected` | `TransactionStatus` and pending-only domain transitions | Unit and integration tests passed; E2E observed pending followed by approved/rejected. |
+| R5 | Reject when value is greater than 2000 | `HighValueSpecification` uses strict `>` | E2E: value 2500 became `rejected/highvalue`; threshold specification tests also pass. |
+| R6 | Reject when daily accumulation is greater than 20000 | `DailyAccumulatedSpecification` uses strict `>` | E2E: ten sequential 1900 transactions approved; a further 1500 for the same account/day (20500 total) became `rejected/dailyaccumulated`. |
+| R7 | Create resource accepts `sourceAccountId`, `targetAccountId`, `tranferTypeId`, and `value` | `CreateTransactionCommandConverter` accepts literal `tranferTypeId` and the correctly spelled alias | API E2E used the literal `tranferTypeId`; converter and API integration tests passed. |
+| R8 | Retrieval resource returns transaction identifier and creation date | `GET /api/v1/transactions/{id}` returns identifier, creation time, status, and rejection reason when applicable | API integration tests and E2E polling passed. |
+| R9 | Provide a Dockerfile to help run the development environment | `Dockerfile` and `docker-compose.yml` run SQL Server, Kafka, API, and Worker | `docker compose config --quiet` passed; API and Worker images built; all four services became healthy on 2026-10-06. |
 
 ## Explicit interpretation
 
-The DOCX says only “Accumulated per day” and does not state an aggregation key
-or time zone. This implementation aggregates transactions from the same
-`sourceAccountId` within a UTC day and includes the transaction under
-evaluation. This interpretation was selected for the portfolio implementation;
-it is documented as an assumption, not as wording present in the source
-challenge.
+The DOCX says only “Accumulated per day”; it does not define an aggregation key, time zone, or whether rejected transactions count. This implementation sums all transactions recorded for the same `sourceAccountId` on a UTC calendar day, including the transaction being evaluated and previously rejected transactions. This is an explicit implementation assumption, not wording from the challenge.
 
-## Local end-to-end scenarios
+## Local end-to-end evidence (2026-10-06)
 
-1. Create a transaction with `value` greater than 2000; `POST` returns
-   `pending`, then `GET` eventually returns `rejected/highvalue`.
-2. Create a transaction with `value` below or equal to 2000; `GET` eventually
-   returns `approved` unless the daily sum exceeds 20000.
-3. Create multiple transactions for the same source account on the same UTC
-   date, each at or below 2000, until the accumulated sum exceeds 20000; the
-   response message causes the API to persist `rejected/dailyaccumulated`.
+- Approval: value 120 → `approved`.
+- High-value rejection: value 2500 → `rejected/highvalue`.
+- Daily-accumulation rejection: ten sequential values of 1900 were approved; a further value of 1500 for the same account/day (20500 total) → `rejected/dailyaccumulated`.
+- API readiness reported SQL Server and Kafka healthy. The API initially failed to start while its Kafka consumer blocked host startup on an absent topic; both consumers now yield during startup/idle polling and delay transient-error retries. Compose then started API and Worker healthy with topics created on first publish.
+- `dotnet test FraudDetection.sln --no-restore -c Release`: 123 unit and 45 integration tests passed.
 
-Run these scenarios against the local Docker Compose stack. No hosted broker,
-database, or paid registry is required.
+This is a manual broker-backed smoke test, not an automated E2E test in CI. No hosted broker, database, registry, cloud service, or paid infrastructure is used.
