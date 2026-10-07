@@ -73,10 +73,15 @@ $highValue = Wait-ForTerminalStatus -TransactionId $highValueCreated.transaction
 Assert-Outcome -State $highValue -ExpectedStatus 'rejected' -ExpectedReason 'highvalue'
 $results.Add([pscustomobject]@{ scenario = 'high value'; status = $highValue.status; reason = $highValue.rejectionReason; id = $highValue.transactionExternalId })
 
+$boundaryCreated = New-Transaction -SourceAccountId ([Guid]::NewGuid()) -Value 2000
+$boundary = Wait-ForTerminalStatus -TransactionId $boundaryCreated.transactionExternalId
+Assert-Outcome -State $boundary -ExpectedStatus 'approved'
+$results.Add([pscustomobject]@{ scenario = 'high-value boundary (2000)'; status = $boundary.status; reason = $boundary.rejectionReason; id = $boundary.transactionExternalId })
+
 $dailySource = [Guid]::NewGuid()
 $dailyUtcDay = $null
 for ($index = 0; $index -lt 10; $index++) {
-    $created = New-Transaction -SourceAccountId $dailySource -Value 1900
+    $created = New-Transaction -SourceAccountId $dailySource -Value 2000
     $state = Wait-ForTerminalStatus -TransactionId $created.transactionExternalId
     Assert-Outcome -State $state -ExpectedStatus 'approved'
 
@@ -89,13 +94,13 @@ for ($index = 0; $index -lt 10; $index++) {
     }
 }
 
-$dailyCreated = New-Transaction -SourceAccountId $dailySource -Value 1500
+$dailyCreated = New-Transaction -SourceAccountId $dailySource -Value 1
 $dailyRejected = Wait-ForTerminalStatus -TransactionId $dailyCreated.transactionExternalId
 Assert-Outcome -State $dailyRejected -ExpectedStatus 'rejected' -ExpectedReason 'dailyaccumulated'
 if (([DateTime]$dailyRejected.createdAt).ToUniversalTime().Date -ne $dailyUtcDay) {
     throw 'The final transaction fell on a different UTC date; rerun the daily scenario.'
 }
-$results.Add([pscustomobject]@{ scenario = 'daily accumulated (20500)'; status = $dailyRejected.status; reason = $dailyRejected.rejectionReason; id = $dailyRejected.transactionExternalId })
+$results.Add([pscustomobject]@{ scenario = 'daily accumulated (20001)'; status = $dailyRejected.status; reason = $dailyRejected.rejectionReason; id = $dailyRejected.transactionExternalId })
 
 $results | Format-Table -AutoSize
 Write-Output 'All local anti-fraud smoke scenarios passed.'

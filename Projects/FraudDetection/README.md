@@ -322,7 +322,7 @@ The script generates fresh account IDs and verifies:
 
 - A transaction is approved.
 - A value above 2000 is rejected as highvalue.
-- Ten sequential approved transactions of 1900 plus a further 1500 for the same account and UTC day are rejected as dailyaccumulated.
+- A transaction at exactly 2000 is approved and 2001 is rejected as highvalue. Ten sequential transactions of 2000 for one source account/day reach exactly 20000 and are approved; a further value of 1 is rejected as dailyaccumulated.
 
 The script leaves its test rows in the SQL Server volume. Use docker compose down to stop the stack; this keeps the volume.
 

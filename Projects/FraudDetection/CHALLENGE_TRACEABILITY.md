@@ -8,8 +8,8 @@ This matrix maps the supplied `Challenge BE-LT.docx` to the implementation and e
 | R2 | Use Kafka for asynchronous evaluation | API publishes `TransactionCreated`; Worker consumes it and publishes `TransactionEvaluated`; API consumes the response | Local Compose E2E passed on 2026-10-06: a POST returned `pending`, then GET observed the terminal state after the worker response. |
 | R3 | Anti-fraud microservice sends a response that updates transaction state | Worker evaluates and publishes the decision; API applies and persists the response after consuming it | Verified for approval and both rejection rules through the running Kafka/SQL/API/Worker stack. Offsets are committed after publish/persistence. |
 | R4 | Exactly three states: `pending`, `approved`, `rejected` | `TransactionStatus` and pending-only domain transitions | Unit and integration tests passed; E2E observed pending followed by approved/rejected. |
-| R5 | Reject when value is greater than 2000 | `HighValueSpecification` uses strict `>` | E2E: value 2500 became `rejected/highvalue`; threshold specification tests also pass. |
-| R6 | Reject when daily accumulation is greater than 20000 | `DailyAccumulatedSpecification` uses strict `>` | E2E: ten sequential 1900 transactions approved; a further 1500 for the same account/day (20500 total) became `rejected/dailyaccumulated`. |
+| R5 | Reject when value is greater than 2000 | `HighValueSpecification` uses strict `>` | Browser E2E: value 2001 became `rejected/highvalue`; exact value 2000 became `approved`. Unit boundary tests also pass. |
+| R6 | Reject when daily accumulation is greater than 20000 | `DailyAccumulatedSpecification` uses strict `>` | Browser E2E: ten sequential 2000 transactions for one source account/day (exactly 20000) were approved; the next value 1 (20001 total) became `rejected/dailyaccumulated`. |
 | R7 | Create resource accepts `sourceAccountId`, `targetAccountId`, `tranferTypeId`, and `value` | `CreateTransactionCommandConverter` accepts literal `tranferTypeId` and the correctly spelled alias | API E2E used the literal `tranferTypeId`; converter and API integration tests passed. |
 | R8 | Retrieval resource returns transaction identifier and creation date | `GET /api/v1/transactions/{id}` returns identifier, creation time, status, and rejection reason when applicable | API integration tests and E2E polling passed. |
 | R9 | Provide a Dockerfile to help run the development environment | `Dockerfile` and `docker-compose.yml` run SQL Server, Kafka, API, and Worker | `docker compose config --quiet` passed; API and Worker images built; all four services became healthy on 2026-10-06. |
@@ -20,9 +20,11 @@ The DOCX says only “Accumulated per day”; it does not define an aggregation 
 
 ## Local end-to-end evidence (2026-10-06)
 
-- Approval: value 120 → `approved`.
-- High-value rejection: value 2500 → `rejected/highvalue`.
-- Daily-accumulation rejection: ten sequential values of 1900 were approved; a further value of 1500 for the same account/day (20500 total) → `rejected/dailyaccumulated`.
+- Approval: value 50 → `approved` after the API returned `pending`.
+- High-value boundary: value 2000 → `approved`; value 2001 → `rejected/highvalue`.
+- Daily boundary: ten sequential values of 2000 for one source account/day (exactly 20000) → `approved`; a further value of 1 (20001 total) → `rejected/dailyaccumulated`.
+- Invalid value 0 → HTTP 400 ProblemDetails; unknown transaction ID → HTTP 404 ProblemDetails.
+- The create and query requests were executed through the browser Swagger UI against the local Docker Compose stack.
 - API readiness reported SQL Server and Kafka healthy. The API initially failed to start while its Kafka consumer blocked host startup on an absent topic; both consumers now yield during startup/idle polling and delay transient-error retries. Compose then started API and Worker healthy with topics created on first publish.
 - `dotnet test FraudDetection.sln --no-restore -c Release`: 123 unit and 45 integration tests passed.
 
